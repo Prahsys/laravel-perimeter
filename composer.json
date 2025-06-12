@@ -1,0 +1,45 @@
+{
+    "name": "prahsys/laravel-perimeter",
+    "description": "Comprehensive system-level security monitoring for Laravel applications",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Prahsys Team",
+            "email": "dev@prahsys.com"
+        }
+    ],
+    "require": {
+        "php": "^8.1",
+        "illuminate/support": "^9.0|^10.0|^11.0",
+        "illuminate/console": "^9.0|^10.0|^11.0",
+        "illuminate/http": "^9.0|^10.0|^11.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^7.0|^8.0|^9.0",
+        "phpunit/phpunit": "^9.5|^10.0",
+        "mockery/mockery": "^1.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "Prahsys\\Perimeter\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Prahsys\\Perimeter\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Prahsys\\Perimeter\\PerimeterServiceProvider"
+            ],
+            "aliases": {
+                "Perimeter": "Prahsys\\Perimeter\\Facades\\Perimeter"
+            }
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
