@@ -1,0 +1,26 @@
+[DEFAULT]
+ignoreip = 127.0.0.1/8
+bantime = 3600
+findtime = 600
+maxretry = 5
+backend = auto
+banaction = dummy
+enabled = false
+
+[sshd]
+enabled = true
+filter = sshd
+logpath = /var/log/auth/auth.log
+action = dummy
+
+[apache-auth]
+enabled = false
+filter = apache-auth
+logpath = /var/log/apache2/error.log
+action = dummy
+
+[php-fpm]
+enabled = false
+filter = php-fpm
+logpath = /var/log/php-fpm/error.log
+action = dummy

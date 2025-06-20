@@ -1,0 +1,33 @@
+Usage: falco [options]
+
+Options:
+ -h, --help                    Print this page
+ -c                            Config file (default: /etc/falco/falco.yaml)
+ -A                            Monitor all events, including those with EF_DROP_FALCO flag
+ -b, --print-base64            Print data buffers in base64
+ -d, --daemon                  Run as a daemon
+ -D <pattern>                  Disable any rules matching the regex <pattern>
+ -e <events_file>              Read the events from <events_file> (in .scap format)
+ -E <rules_file>               Add the rules contained in <rules_file>
+ --cri <path>                  Path to CRI socket for container metadata
+ -g                            Get metadata from container runtime and Kubernetes
+ -H                            Print headers on plugin output
+ -k <url>, --k8s-api=<url>     Enable Kubernetes support by connecting to the API server
+ -l <rate>                     Limit the rate of events in notifications per second
+ -L                            Show the name and description of all rules
+ --markdown                    When used with -L, print the rules as markdown documents
+ -M <num_seconds>              Stop collecting after <num_seconds> reached
+ -N                            When used with -L, only print rule names and tags
+ -o, --option <key>=<value>    Set the value of option <key> to <value>
+ -p <pid>                      Read the events from the process with the specified pid
+ -P, --pidfile <pid_file>      When run as a daemon, write pid to specified file
+ -r <rules_file>               Rules file/directory (default: /etc/falco/falco_rules.yaml)
+ -s <stats_file>               Write statistics to this file
+ -S <len>, --snaplen=<len>     Capture the first <len> bytes of each I/O buffer
+ -T <tag>                      Disable any rules with a tag=<tag>
+ -t <tag>                      Only run those rules with a tag=<tag>
+ -U, --unbuffered              Turn off output buffering
+ -V, --version                 Print version number
+ -v                            Verbose output
+ -x, --print-matched-patterns  Enable pattern printing as part of the outputs
+ --support                     Print support information

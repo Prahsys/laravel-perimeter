@@ -1,0 +1,20 @@
+
+                       Clam AntiVirus: Scanner 1.0.7
+           By The ClamAV Team: https://www.clamav.net/about.html#credits
+           (C) 2022 Cisco Systems, Inc.
+
+    clamscan [options] [file/directory/-]
+
+    --help                -h             Show this help
+    --version             -V             Print version number
+    --verbose             -v             Be verbose
+    --archive-verbose     -a             Show filenames inside scanned archives
+    --debug                              Enable libclamav's debug messages
+    --quiet                              Only output error messages
+    --stdout                             Write to stdout instead of stderr. Does not affect 'debug' messages.
+    --no-summary                         Disable summary at end of scanning
+    --infected            -i             Only print infected files
+    --suppress-ok-results -o             Skip printing OK files
+    --bell                               Sound bell on virus detection
+
+    --tempdir=DIRECTORY                  Create temporary files in DIRECTORY

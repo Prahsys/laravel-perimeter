@@ -1,89 +1,104 @@
 <?php
 
-namespace Prahsys\Perimeter\Tests\Feature;
-
 use Illuminate\Http\UploadedFile;
-use Mockery;
-use Orchestra\Testbench\TestCase;
+use Prahsys\Perimeter\Exceptions\ThreatDetectedException;
 use Prahsys\Perimeter\Facades\Perimeter;
 use Prahsys\Perimeter\Http\Middleware\PerimeterProtection;
-use Prahsys\Perimeter\PerimeterServiceProvider;
 use Prahsys\Perimeter\ScanResult;
-use Prahsys\Perimeter\Services\ClamAVService;
 
-class MiddlewareTest extends TestCase
-{
-    protected function getPackageProviders($app)
-    {
-        return [
-            PerimeterServiceProvider::class,
-        ];
-    }
+beforeEach(function () {
+    // Set up route with middleware
+    $this->app['router']->post('/test-upload', function () {
+        return response()->json(['success' => true]);
+    })->middleware(PerimeterProtection::class);
+});
 
-    protected function getPackageAliases($app)
-    {
-        return [
-            'Perimeter' => Perimeter::class,
-        ];
-    }
+test('it allows safe file uploads', function () {
+    $file = UploadedFile::fake()->create('document.pdf', 100);
 
-    protected function setUp(): void
-    {
-        parent::setUp();
+    $response = $this->postJson('/test-upload', [
+        'file' => $file,
+    ]);
 
-        // Mock the ClamAV service
-        $this->app->singleton(ClamAVService::class, function () {
-            return Mockery::mock(ClamAVService::class, function ($mock) {
-                $mock->shouldReceive('isEnabled')->andReturn(true);
-                $mock->shouldReceive('scanFile')->andReturn(ScanResult::clean('/path/to/file'));
-            });
-        });
+    $response->assertStatus(200);
+    $response->assertJson(['success' => true]);
+});
 
-        // Set up route with middleware
-        $this->app['router']->post('/test-upload', function () {
-            return response()->json(['success' => true]);
-        })->middleware(PerimeterProtection::class);
-    }
+test('it blocks malicious file uploads', function () {
+    // The key issue is that the middleware uses the Perimeter facade
+    // So we need to mock the Perimeter class itself
 
-    protected function tearDown(): void
-    {
-        Mockery::close();
-        parent::tearDown();
-    }
+    // Create an infected scan result
+    $infectedResult = ScanResult::infected('/path/to/file', 'Trojan.PHP.Agent');
 
-    /** @test */
-    public function it_allows_safe_file_uploads()
-    {
-        $file = UploadedFile::fake()->create('document.pdf', 100);
+    // Create the mocks we need
+    $scannerServiceMock = \Mockery::mock(\Prahsys\Perimeter\Contracts\ScannerServiceInterface::class);
+    $serviceManagerMock = \Mockery::mock(\Prahsys\Perimeter\Services\ServiceManager::class);
+    $reportingServiceMock = \Mockery::mock(\Prahsys\Perimeter\Services\ReportingService::class);
 
-        $response = $this->postJson('/test-upload', [
-            'file' => $file,
-        ]);
+    // Setup scanner service mock
+    $scannerServiceMock->shouldReceive('resultToSecurityEventData')
+        ->andReturn(new \Prahsys\Perimeter\Data\SecurityEventData(
+            timestamp: now(),
+            type: 'malware',
+            severity: 'critical',
+            description: 'Detected Trojan.PHP.Agent in file',
+            location: '/path/to/file',
+            user: null,
+            details: ['threat' => 'Trojan.PHP.Agent']
+        ));
 
-        $response->assertStatus(200);
-        $response->assertJson(['success' => true]);
-    }
+    // Setup service manager mock
+    $serviceManagerMock->shouldReceive('getScanners')->andReturn(collect([$scannerServiceMock]));
+    $serviceManagerMock->shouldReceive('getMonitors')->andReturn(collect([]));
+    $serviceManagerMock->shouldReceive('getVulnerabilityScanners')->andReturn(collect([]));
 
-    /** @test */
-    public function it_blocks_malicious_file_uploads()
-    {
-        // Override the mock to return an infected file
-        $this->app->singleton(ClamAVService::class, function () {
-            return Mockery::mock(ClamAVService::class, function ($mock) {
-                $mock->shouldReceive('isEnabled')->andReturn(true);
-                $mock->shouldReceive('scanFile')->andReturn(
-                    ScanResult::infected('/path/to/file', 'Trojan.PHP.Agent')
-                );
-            });
-        });
+    // Setup reporting service mock - no longer expecting setClamAVService call
+    // The test was expecting setClamAVService to be called, but it's not in our
+    // refactored code path
+    $reportingServiceMock->shouldReceive('setClamAVService')->withAnyArgs()->zeroOrMoreTimes();
+    $reportingServiceMock->shouldReceive('setFalcoService')->withAnyArgs()->zeroOrMoreTimes();
+    $reportingServiceMock->shouldReceive('setTrivyService')->withAnyArgs()->zeroOrMoreTimes();
 
-        $file = UploadedFile::fake()->create('malicious.php', 100);
+    // Create a partial mock of the Perimeter class that doesn't call the constructor
+    $perimeterMock = \Mockery::mock(\Prahsys\Perimeter\Perimeter::class, [
+        $serviceManagerMock, $reportingServiceMock,
+    ])->makePartial();
 
-        $response = $this->postJson('/test-upload', [
-            'file' => $file,
-        ]);
+    // Set up expectations for the scan method
+    $perimeterMock->shouldReceive('scan')
+        ->once()  // This method should be called exactly once
+        ->andReturn($infectedResult); // Return an infected result
 
-        $response->assertStatus(422);
-        $response->assertSee('Security threat detected');
-    }
-}
+    // We need to allow mocking protected methods and stub the necessary methods
+    $perimeterMock->shouldAllowMockingProtectedMethods()
+        ->shouldReceive('getScannerService')->andReturn($scannerServiceMock)
+        ->shouldReceive('triggerCallbacks')->withAnyArgs()->zeroOrMoreTimes()
+        ->shouldReceive('logThreat')->withAnyArgs()->zeroOrMoreTimes()
+        ->shouldReceive('storeSecurityEvent')->withAnyArgs()->zeroOrMoreTimes();
+
+    // Replace the Perimeter instance in the container
+    // Note: Perimeter facade uses the class name as accessor, not 'perimeter'
+    $this->app->instance(\Prahsys\Perimeter\Perimeter::class, $perimeterMock);
+
+    // Create a fake file that should trigger detection
+    $file = UploadedFile::fake()->create('malicious.php', 100);
+
+    // Create a request with the file
+    $request = \Illuminate\Http\Request::create(
+        '/test-upload',
+        'POST',
+        [], // parameters
+        [], // cookies
+        ['file' => $file], // files
+        [], // server
+        null // content
+    );
+
+    // Create middleware and run the test
+    $middleware = new PerimeterProtection;
+
+    // Expect the exception to be thrown
+    expect(fn () => $middleware->handle($request, function () {}))
+        ->toThrow(ThreatDetectedException::class, 'Security threat detected', 'ThreatDetectedException was not thrown');
+});

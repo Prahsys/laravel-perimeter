@@ -1,0 +1,23 @@
+Running point-in-time security check...
+
+SECURITY EVENTS DETECTED
+
++----------+-----------------------------+----------+----------+------------------+
+| Priority | Rule                        | Process  | User     | Time             |
++----------+-----------------------------+----------+----------+------------------+
+| CRITICAL | Shell in Container          | bash     | root     | 13:35:21.159766 |
+| WARNING  | Sensitive File Access       | cat      | www-data | 13:36:12.842912 |
+| WARNING  | Suspicious Network Activity | php      | www-data | 13:37:05.123456 |
+| CRITICAL | Package Management Detected | apt-get  | root     | 13:38:02.987654 |
+| NOTICE   | Binary Directory Modified   | touch    | root     | 13:39:14.555666 |
++----------+-----------------------------+----------+----------+------------------+
+
+ACTIONS RECOMMENDED:
+1. Investigate unauthorized shell access
+2. Review sensitive file access attempts
+3. Monitor suspicious network connections
+4. Disable package management in production containers
+5. Verify binary directory modifications
+
+For detailed information about these events, run:
+php artisan perimeter:report --type=behavior --format=json

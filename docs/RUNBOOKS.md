@@ -234,6 +234,84 @@ When Trivy identifies a critical vulnerability:
 - **Security On-Call**: +1-555-123-4567
 - **Incident Response Channel**: #security-incidents (Slack)
 
+## Installation and Configuration
+
+### Falco Installation
+
+The Falco installation is designed to run as a standard system service for effective security monitoring. In containerized environments, it uses the eBPF-based monitoring approach which doesn't require kernel module installation.
+
+```bash
+# To install Falco and other security components
+sudo php artisan perimeter:install
+```
+
+This approach has several benefits:
+- Works reliably across different environments
+- Uses the modern eBPF monitoring when available
+- Standardized configuration and service management
+- Works on most Linux distributions without modification
+
+Falco provides detailed monitoring of process execution, file access, and network activity, focusing on security-relevant events in your Laravel application environment.
+
+#### Using Falco in Docker/Containers
+
+When running in a containerized environment:
+
+1. **Container installation**: Falco is installed with container-specific optimizations.
+
+2. **Container detection**: The package detects when it's running in a container and configures services appropriately.
+
+3. **Health checks**: The `perimeter:health` command provides accurate status information for all security components.
+
+4. **Monitoring**: Falco's custom rules focus on Laravel-specific security patterns:
+
+```bash
+# Check Falco status
+docker-compose exec app falco-status
+
+# View recent security events
+docker-compose exec app falco-status --events
+
+# List active security rules
+docker-compose exec app falco-status --rules
+```
+
+### Troubleshooting Falco Installation
+
+If you encounter issues during Falco installation:
+
+1. Check the Falco service status:
+   ```
+   sudo systemctl status falco-modern-bpf
+   ```
+
+2. View Falco logs:
+   ```
+   sudo journalctl -u falco-modern-bpf
+   ```
+
+3. Check Falco's status with the monitoring tool:
+   ```
+   sudo falco-status
+   ```
+
+4. Verify the configuration:
+   ```
+   sudo cat /etc/falco/falco.yaml
+   sudo cat /etc/falco/falco_rules.local.yaml
+   ```
+
+5. Check if any custom rules are loaded:
+   ```
+   sudo falco --list-rules
+   ```
+
+#### Common Error Messages
+
+- **Error starting the eBPF driver**: This usually means there's an issue with permissions or kernel configuration.
+- **Error with rules files**: Check rule syntax and file permissions.
+- **Permission denied**: Make sure you're running installation and management commands with sudo.
+
 ## References
 
 - [ClamAV Documentation](https://www.clamav.net/documents/clam-antivirus-user-manual)

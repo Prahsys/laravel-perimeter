@@ -1,0 +1,14 @@
+# Ignore the composer.lock since we want this to build from the latest dependencies in the docker image
+composer.lock
+
+# Ignore vendor directory
+/vendor
+
+# Ignore storage logs
+/storage/logs/*
+!/storage/logs/.gitkeep
+
+# Ignore temporary files
+/.phpunit.result.cache
+.DS_Store
+Thumbs.db

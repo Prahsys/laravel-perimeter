@@ -1,0 +1,7 @@
+[Unit]
+Description=Trivy Vulnerability Database Update
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/trivy --cache-dir /var/log/trivy/.cache image --download-db-only

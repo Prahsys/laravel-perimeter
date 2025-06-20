@@ -1,0 +1,26 @@
+2025-06-16 08:12:45,123 fail2ban.server         [15762]: INFO    Starting Fail2ban v1.0.2
+2025-06-16 08:12:45,456 fail2ban.filter         [15762]: INFO    Set maxRetry = 5
+2025-06-16 08:12:45,789 fail2ban.filter         [15762]: INFO    Set findtime = 600
+2025-06-16 08:12:46,012 fail2ban.jail           [15762]: INFO    Creating new jail 'sshd'
+2025-06-16 08:12:46,234 fail2ban.jail           [15762]: INFO    Jail 'sshd' uses systemd {}
+2025-06-16 08:12:46,345 fail2ban.jail           [15762]: INFO    Jail 'sshd' started
+2025-06-16 08:12:46,678 fail2ban.jail           [15762]: INFO    Creating new jail 'apache-auth'
+2025-06-16 08:12:46,901 fail2ban.jail           [15762]: INFO    Jail 'apache-auth' uses poller {}
+2025-06-16 08:12:47,123 fail2ban.jail           [15762]: INFO    Jail 'apache-auth' started
+2025-06-16 09:23:45,876 fail2ban.filter         [15762]: INFO    [sshd] Found 192.168.1.100 - 2025-06-16 09:23:45
+2025-06-16 09:24:12,345 fail2ban.filter         [15762]: INFO    [sshd] Found 192.168.1.100 - 2025-06-16 09:24:12
+2025-06-16 09:24:45,678 fail2ban.filter         [15762]: INFO    [sshd] Found 192.168.1.100 - 2025-06-16 09:24:45
+2025-06-16 09:25:15,901 fail2ban.filter         [15762]: INFO    [sshd] Found 192.168.1.100 - 2025-06-16 09:25:15
+2025-06-16 09:25:45,234 fail2ban.filter         [15762]: INFO    [sshd] Found 192.168.1.100 - 2025-06-16 09:25:45
+2025-06-16 09:25:45,456 fail2ban.actions        [15762]: NOTICE  [sshd] Ban 192.168.1.100
+2025-06-16 10:15:20,789 fail2ban.filter         [15762]: INFO    [apache-auth] Found 198.51.100.23 - 2025-06-16 10:15:20
+2025-06-16 10:15:50,012 fail2ban.filter         [15762]: INFO    [apache-auth] Found 198.51.100.23 - 2025-06-16 10:15:50
+2025-06-16 10:16:20,345 fail2ban.filter         [15762]: INFO    [apache-auth] Found 198.51.100.23 - 2025-06-16 10:16:20
+2025-06-16 10:16:50,678 fail2ban.actions        [15762]: NOTICE  [apache-auth] Ban 198.51.100.23
+2025-06-16 11:42:15,901 fail2ban.filter         [15762]: INFO    [sshd] Found 203.0.113.25 - 2025-06-16 11:42:15
+2025-06-16 11:42:45,234 fail2ban.filter         [15762]: INFO    [sshd] Found 203.0.113.25 - 2025-06-16 11:42:45
+2025-06-16 11:43:15,567 fail2ban.filter         [15762]: INFO    [sshd] Found 203.0.113.25 - 2025-06-16 11:43:15
+2025-06-16 11:43:45,789 fail2ban.filter         [15762]: INFO    [sshd] Found 203.0.113.25 - 2025-06-16 11:43:45
+2025-06-16 11:44:15,012 fail2ban.filter         [15762]: INFO    [sshd] Found 203.0.113.25 - 2025-06-16 11:44:15
+2025-06-16 11:44:15,345 fail2ban.actions        [15762]: NOTICE  [sshd] Ban 203.0.113.25
+2025-06-16 13:25:45,678 fail2ban.actions        [15762]: NOTICE  [sshd] Unban 192.168.1.100

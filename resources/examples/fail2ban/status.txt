@@ -1,0 +1,4 @@
+Status
+|- Number of jail:      4
+`- Jail list:   sshd, apache-auth, php-url-fopen, nginx-http-auth
+Server replied: v1.0.2

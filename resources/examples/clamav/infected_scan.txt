@@ -1,0 +1,13 @@
+/uploads/malicious.exe: Win.Malware.Trojan-1 FOUND
+/var/www/html/uploads/backdoor.php: PHP.Shell.Backdoor-4 FOUND
+/tmp/suspicious_file.bin: Win.Trojan.Generic-12345 FOUND
+
+----------- SCAN SUMMARY -----------
+Known viruses: 8707525
+Engine version: 1.0.7
+Scanned directories: 24
+Scanned files: 532
+Infected files: 3
+Data scanned: 155.28 MB
+Data read: 87.31 MB (ratio 1.78:1)
+Time: 23.149 sec (0 m 23 s)

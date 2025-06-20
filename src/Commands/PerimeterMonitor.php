@@ -3,8 +3,7 @@
 namespace Prahsys\Perimeter\Commands;
 
 use Illuminate\Console\Command;
-use Prahsys\Perimeter\Facades\Perimeter;
-use Prahsys\Perimeter\Services\FalcoService;
+use Prahsys\Perimeter\Contracts\SecurityMonitoringServiceInterface;
 
 class PerimeterMonitor extends Command
 {
@@ -14,8 +13,8 @@ class PerimeterMonitor extends Command
      * @var string
      */
     protected $signature = 'perimeter:monitor 
-                            {--realtime : Run in real-time monitoring mode}
-                            {--duration=3600 : Duration in seconds (for real-time mode)}';
+                            {--duration=0 : Duration in seconds (0 for indefinite)}
+                            {--service= : Specific service to monitor (default: all)}';
 
     /**
      * The console command description.
@@ -31,137 +30,159 @@ class PerimeterMonitor extends Command
      */
     public function handle()
     {
-        $realtime = $this->option('realtime');
         $duration = (int) $this->option('duration');
-        
-        if ($realtime) {
-            return $this->runRealtimeMonitoring($duration);
+        $serviceName = $this->option('service');
+
+        // Get all monitoring services or a specific one if requested
+        $monitoringServices = $this->getMonitoringServices($serviceName);
+
+        if (empty($monitoringServices)) {
+            $this->error('No monitoring services available'.
+                ($serviceName ? " (requested service: {$serviceName} not found or not enabled)" : ''));
+
+            return 1;
         }
-        
-        return $this->runPointInTimeMonitoring();
+
+        return $this->runMonitoring($monitoringServices, $duration);
     }
 
     /**
-     * Run real-time monitoring.
-     *
-     * @param int $duration
-     * @return int
+     * Get available monitoring services.
      */
-    protected function runRealtimeMonitoring(int $duration): int
+    protected function getMonitoringServices(?string $serviceName = null): array
     {
-        $this->info('Starting real-time security monitoring...');
-        $this->info("Press Ctrl+C to stop monitoring (will run for {$duration} seconds otherwise)");
+        $serviceManager = app(\Prahsys\Perimeter\Services\ServiceManager::class);
+        $allServices = $serviceManager->all();
+        $monitoringServices = [];
+
+        foreach ($allServices as $name => $service) {
+            // Skip aliases (like full class names)
+            if (strpos($name, '\\') !== false) {
+                continue;
+            }
+
+            // Get the service instance
+            $instance = $serviceManager->get($name);
+
+            // Skip if not enabled
+            if (! $instance->isEnabled() || ! $instance->isInstalled() || ! $instance->isConfigured()) {
+                continue;
+            }
+
+            // Check if it's a monitoring service
+            if ($instance instanceof SecurityMonitoringServiceInterface) {
+                if ($serviceName && $name !== $serviceName) {
+                    continue;
+                }
+
+                $monitoringServices[$name] = $instance;
+            }
+        }
+
+        return $monitoringServices;
+    }
+
+    /**
+     * Run continuous monitoring.
+     */
+    protected function runMonitoring(array $monitoringServices, int $duration): int
+    {
+        $this->info('Starting security monitoring...');
+        if ($duration > 0) {
+            $this->info("Will run for {$duration} seconds (press Ctrl+C to stop earlier)");
+        } else {
+            $this->info("Running indefinitely (press Ctrl+C to stop)");
+        }
         $this->newLine();
-        
+
         $startTime = now();
-        $endTime = $startTime->addSeconds($duration);
-        
-        // Start monitoring
-        Perimeter::monitor($duration);
-        
-        // In real implementation, this would be event-driven
-        // For demo purposes, we periodically check for events
-        $falcoService = app(FalcoService::class);
-        
+        $endTime = $duration > 0 ? $startTime->addSeconds($duration) : null;
+
+        // Start monitoring for each service
+        foreach ($monitoringServices as $name => $service) {
+            $actualDuration = $duration > 0 ? $duration : null; // Pass null for indefinite
+            $result = $service->startMonitoring($actualDuration);
+            $this->line("Service <fg=blue>{$name}</> ".($result ? '<fg=green>started</>' : '<fg=red>failed to start</>'));
+        }
+        $this->newLine();
+
+        // Monitoring loop
         $checkInterval = 5; // seconds
         $lastCheck = time();
-        $lastEventCount = 0;
-        
-        while (now()->lessThan($endTime)) {
+        $eventCounts = [];
+
+        // Initialize event counts for each service
+        foreach ($monitoringServices as $name => $service) {
+            $eventCounts[$name] = 0;
+        }
+
+        // Main monitoring loop - run indefinitely or until end time
+        while ($endTime === null || now()->lessThan($endTime)) {
             // Check if we've been running for at least $checkInterval seconds
             if (time() - $lastCheck >= $checkInterval) {
-                $events = $falcoService->getRecentEvents();
-                $newEvents = count($events) - $lastEventCount;
-                
-                if ($newEvents > 0) {
-                    $this->output->write("<fg=yellow>\r" . now()->format('Y-m-d H:i:s') . " - {$newEvents} new security event(s) detected</>");
-                    $lastEventCount = count($events);
-                    
-                    // Display the most recent event
-                    if (!empty($events)) {
-                        $latestEvent = $events[0];
-                        $this->newLine();
-                        $this->line("<fg=red>{$latestEvent['priority']}</> - {$latestEvent['description']}");
-                        $this->newLine();
+                $hasNewEvents = false;
+                $totalNewEvents = 0;
+
+                // Check each monitoring service for new events
+                foreach ($monitoringServices as $name => $service) {
+                    $events = $service->getMonitoringEvents();
+                    $currentCount = count($events);
+                    $newEvents = $currentCount - $eventCounts[$name];
+
+                    if ($newEvents > 0) {
+                        $hasNewEvents = true;
+                        $totalNewEvents += $newEvents;
+                        $eventCounts[$name] = $currentCount;
+
+                        // Display events that are new since last check
+                        $newEventsList = array_slice($events, 0, $newEvents);
+                        foreach ($newEventsList as $event) {
+                            $severityColor = $this->getSeverityColor($event->severity);
+                            $this->line(
+                                now()->format('Y-m-d H:i:s') . 
+                                " <fg=blue>[{$name}]</> " . 
+                                "<fg={$severityColor}>{$event->severity}</> - " . 
+                                "{$event->description}" . 
+                                ($event->location ? " at {$event->location}" : "")
+                            );
+                        }
                     }
-                } else {
-                    $this->output->write("\r" . now()->format('Y-m-d H:i:s') . " - Monitoring active, no new events");
                 }
-                
+
+                if (!$hasNewEvents) {
+                    $this->output->write("\r" . now()->format('Y-m-d H:i:s') . ' - Monitoring active, no new events');
+                }
+
                 $lastCheck = time();
             }
-            
+
             // Sleep for a bit to avoid hammering the CPU
             usleep(500000); // 0.5 seconds
         }
-        
+
+        // Stop monitoring for each service
         $this->newLine(2);
+        foreach ($monitoringServices as $name => $service) {
+            $result = $service->stopMonitoring();
+            $this->line("Service <fg=blue>{$name}</> ".($result ? '<fg=green>stopped</>' : '<fg=red>failed to stop</>'));
+        }
+
+        $this->newLine();
         $this->info('Monitoring complete.');
-        
+
         return 0;
     }
 
     /**
-     * Run point-in-time monitoring.
-     *
-     * @return int
+     * Get color for event severity.
      */
-    protected function runPointInTimeMonitoring(): int
+    protected function getSeverityColor(string $severity): string
     {
-        $this->info('Running point-in-time security check...');
-        $this->newLine();
-        
-        $falcoService = app(FalcoService::class);
-        $events = $falcoService->getRecentEvents(25);
-        
-        if (empty($events)) {
-            $this->info('No security events detected.');
-            return 0;
-        }
-        
-        $this->line('<fg=white;bg=blue>SECURITY EVENTS</>');
-        $this->newLine();
-        
-        $headers = ['Priority', 'Rule', 'Description', 'Process', 'User', 'Timestamp'];
-        $rows = [];
-        
-        foreach ($events as $event) {
-            $priorityColor = $this->getPriorityColor($event['priority']);
-            
-            $rows[] = [
-                "<fg={$priorityColor}>{$event['priority']}</>",
-                $event['rule'],
-                $event['description'],
-                $event['process'],
-                $event['user'],
-                $event['timestamp'],
-            ];
-        }
-        
-        $this->table($headers, $rows);
-        
-        return 0;
-    }
-
-    /**
-     * Get color for event priority.
-     *
-     * @param string $priority
-     * @return string
-     */
-    protected function getPriorityColor(string $priority): string
-    {
-        switch ($priority) {
-            case 'emergency':
-                return 'red';
-            case 'critical':
-                return 'bright-red';
-            case 'high':
-                return 'yellow';
-            case 'warning':
-                return 'bright-yellow';
-            default:
-                return 'white';
-        }
+        return match (strtolower($severity)) {
+            'emergency', 'critical', 'high' => 'red',
+            'warning', 'medium' => 'yellow',
+            'info', 'low' => 'green',
+            default => 'white',
+        };
     }
 }

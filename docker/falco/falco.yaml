@@ -1,0 +1,26 @@
+# Falco configuration for Docker container testing
+
+# We must disable the driver in containers
+driver:
+  enabled: false
+
+# Default rules file
+rules_file:
+  - /etc/falco/falco_rules.yaml
+
+# Enable file output
+file_output:
+  enabled: true
+  filename: /var/log/falco/falco.log
+
+# Enable stdout output
+stdout_output:
+  enabled: true
+
+# This avoids errors about missing sources when the driver is disabled
+syscall_event_drops:
+  actions:
+    - log
+    - alert
+  rate: 0.03333
+  max_burst: 10

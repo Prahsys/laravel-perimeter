@@ -1,0 +1,8 @@
+# A minimal rules file for Falco in Docker
+# This has no real rules but will let Falco run
+
+- rule: Placeholder
+  desc: Placeholder rule for Docker testing
+  condition: evt.type=execve
+  output: "Execution detected"
+  priority: INFO

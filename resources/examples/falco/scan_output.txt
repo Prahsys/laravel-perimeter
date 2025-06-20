@@ -1,0 +1,13 @@
+# Sample Falco Command Output
+
+$ falco -c /etc/falco/falco.yaml
+
+10:15:30.159766067: Notice A shell was spawned in a container with an attached terminal (user=root user_loginuid=-1 container_id=prahsys-laravel-perimeter shell=bash parent=<NA> cmdline=bash terminal=34817 container_id=3dc26b7c86f8 image=prahsys-laravel-perimeter)
+
+10:16:12.842912720: Warning Unauthorized file access attempt detected (user=www-data user_loginuid=-1 command=cat /etc/passwd parent=bash pcmdline=bash file=/etc/passwd container_id=3dc26b7c86f8 container_name=prahsys-laravel-perimeter)
+
+10:17:05.123456789: Warning Outbound connection to suspicious destination detected (user=www-data user_loginuid=-1 command=curl malicious-site.com connection=192.168.1.100:31337 container_id=3dc26b7c86f8)
+
+10:18:02.987654321: Critical Package management process launched in container (user=root user_loginuid=0 command=apt-get install netcat container_id=3dc26b7c86f8 container_name=prahsys-laravel-perimeter image=prahsys-laravel-perimeter:latest)
+
+10:19:14.555666777: Notice File below a known binary directory accessed (user=root command=touch /bin/suspicious file=/bin/suspicious parent=bash pcmdline=bash container_id=3dc26b7c86f8)

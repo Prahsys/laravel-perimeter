@@ -1,0 +1,81 @@
+#!/bin/bash
+
+# Default output format
+FORMAT="text"
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --json)
+      FORMAT="json"
+      shift
+      ;;
+    --help)
+      echo "Usage: ufw-status [--json]"
+      echo "Options:"
+      echo "  --json    Output in JSON format"
+      echo "  --help    Show this help message"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Use --help to see available options"
+      exit 1
+      ;;
+  esac
+done
+
+# Get UFW status
+STATUS=$(ufw status verbose)
+ENABLED=$(echo "$STATUS" | grep -q "Status: active" && echo "true" || echo "false")
+RULES=$(ufw status numbered | grep -v "Status:" | grep '\[')
+
+if [[ "$FORMAT" == "json" ]]; then
+  # Get actual rules in a clean format
+  RULES_CLEAN=$(ufw status | grep -A 100 "^To" | grep -v "^To" | grep -v "^--" | sed '/^$/d')
+  
+  # Convert rules to JSON array
+  RULES_JSON="["
+  
+  # Process each rule
+  RULE_NUM=1
+  while IFS= read -r line; do
+    if [[ -n "$line" ]]; then
+      # Parse the rule line
+      PORT=$(echo "$line" | awk '{print $1}')
+      ACTION=$(echo "$line" | awk '{print $2}')
+      SOURCE=$(echo "$line" | awk '{print $3}')
+      
+      # Add comma if not first element
+      if [[ "$RULES_JSON" != "[" ]]; then
+        RULES_JSON="$RULES_JSON,"
+      fi
+      
+      RULES_JSON="$RULES_JSON{\"id\":$RULE_NUM,\"port\":\"$PORT\",\"action\":\"$ACTION\",\"source\":\"$SOURCE\"}"
+      
+      # Increment rule number
+      ((RULE_NUM++))
+    fi
+  done <<< "$RULES_CLEAN"
+  RULES_JSON="$RULES_JSON]"
+  
+  # Construct final JSON
+  echo "{"
+  echo "  \"enabled\": $ENABLED,"
+  echo "  \"status\": \"$(echo "$STATUS" | grep "Status:" | cut -d ' ' -f 2)\","
+  # Extract default policies
+  DEFAULT_LINE=$(echo "$STATUS" | grep "Default:")
+  DEFAULT_IN=$(echo "$DEFAULT_LINE" | grep -o "deny (incoming)" | cut -d' ' -f1)
+  DEFAULT_OUT=$(echo "$DEFAULT_LINE" | grep -o "allow (outgoing)" | cut -d' ' -f1)
+  
+  echo "  \"default_incoming\": \"$DEFAULT_IN\","
+  echo "  \"default_outgoing\": \"$DEFAULT_OUT\","
+  echo "  \"rules\": $RULES_JSON"
+  echo "}"
+else
+  # Text output
+  echo "$STATUS"
+  echo ""
+  echo "Rules:"
+  echo "$RULES"
+fi

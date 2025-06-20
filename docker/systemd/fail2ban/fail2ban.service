@@ -1,0 +1,15 @@
+[Unit]
+Description=Fail2Ban Service
+Documentation=man:fail2ban(1)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/fail2ban-server -f -x -v start
+ExecReload=/usr/bin/fail2ban-client reload
+ExecStop=/usr/bin/fail2ban-client stop
+Restart=on-failure
+PIDFile=/run/fail2ban/fail2ban.pid
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,33 @@
+Falco configuration information:
+{
+  "falco": {
+    "rules_file": [
+      "/etc/falco/falco_rules.yaml",
+      "/etc/falco/falco_rules.local.yaml",
+      "/etc/falco/rules.d"
+    ],
+    "plugins": [
+      {        "name": "k8saudit",
+        "library_path": "libk8saudit.so",
+        "init_config": null,
+        "open_params": "http://:9765/k8s-audit"
+      },
+      {
+        "name": "json",
+        "library_path": "libjson.so",
+        "init_config": "{ }",
+        "open_params": null
+      }
+    ],
+    "load_plugins": [
+      "k8saudit",
+      "json"
+    ],
+    "log_stderr": true,
+    "log_stdout": true,
+    "log_level": "info",
+    "driver": {
+      "enabled": false
+    }
+  }
+}

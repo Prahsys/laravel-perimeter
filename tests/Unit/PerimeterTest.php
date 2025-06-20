@@ -1,109 +1,123 @@
 <?php
 
-namespace Prahsys\Perimeter\Tests;
-
 use Illuminate\Http\UploadedFile;
-use Mockery;
-use Orchestra\Testbench\TestCase;
 use Prahsys\Perimeter\Facades\Perimeter;
-use Prahsys\Perimeter\PerimeterServiceProvider;
 use Prahsys\Perimeter\ScanResult;
-use Prahsys\Perimeter\Services\ClamAVService;
 
-class PerimeterTest extends TestCase
-{
-    protected function getPackageProviders($app)
-    {
-        return [
-            PerimeterServiceProvider::class,
-        ];
-    }
+test('it can scan a file', function () {
+    $file = UploadedFile::fake()->create('document.pdf', 100);
 
-    protected function getPackageAliases($app)
-    {
-        return [
-            'Perimeter' => Perimeter::class,
-        ];
-    }
+    $result = Perimeter::scan($file);
 
-    public function setUp(): void
-    {
-        parent::setUp();
-        
-        // Mock the ClamAV service to avoid actual system calls
-        $this->app->singleton(ClamAVService::class, function () {
-            return Mockery::mock(ClamAVService::class, function ($mock) {
-                $mock->shouldReceive('isEnabled')->andReturn(true);
-                $mock->shouldReceive('scanFile')->andReturn(ScanResult::clean('/path/to/file'));
-            });
-        });
-    }
+    expect($result)->toBeInstanceOf(ScanResult::class);
+    expect($result->hasThreat())->toBeFalse();
+    expect($result->getThreat())->toBeNull();
+});
 
-    public function tearDown(): void
-    {
-        Mockery::close();
-        parent::tearDown();
-    }
+test('it can detect threats in a file', function () {
+    // Create a standalone Perimeter instance with mocked services for this test
 
-    /** @test */
-    public function it_can_scan_a_file()
-    {
-        $file = UploadedFile::fake()->create('document.pdf', 100);
-        
-        $result = Perimeter::scan($file);
-        
-        $this->assertInstanceOf(ScanResult::class, $result);
-        $this->assertFalse($result->hasThreat());
-        $this->assertNull($result->getThreat());
-    }
+    // Mock the scanner service
+    $mockScannerService = \Mockery::mock(\Prahsys\Perimeter\Contracts\ScannerServiceInterface::class);
+    $mockScannerService->shouldReceive('scanFile')
+        ->andReturn(ScanResult::infected('/path/to/file', 'Trojan.PHP.Agent'));
+    $mockScannerService->shouldReceive('resultToSecurityEventData')
+        ->andReturn(new \Prahsys\Perimeter\Data\SecurityEventData(
+            timestamp: now(),
+            type: 'malware',
+            severity: 'critical',
+            description: 'Detected Trojan.PHP.Agent in file',
+            location: '/path/to/file',
+            user: null,
+            details: ['threat' => 'Trojan.PHP.Agent']
+        ));
 
-    /** @test */
-    public function it_can_detect_threats_in_a_file()
-    {
-        // Override the mock to return an infected file
-        $this->app->singleton(ClamAVService::class, function () {
-            return Mockery::mock(ClamAVService::class, function ($mock) {
-                $mock->shouldReceive('isEnabled')->andReturn(true);
-                $mock->shouldReceive('scanFile')->andReturn(
-                    ScanResult::infected('/path/to/file', 'Trojan.PHP.Agent')
-                );
-            });
-        });
-        
-        $file = UploadedFile::fake()->create('document.php', 100);
-        
-        $result = Perimeter::scan($file);
-        
-        $this->assertInstanceOf(ScanResult::class, $result);
-        $this->assertTrue($result->hasThreat());
-        $this->assertEquals('Trojan.PHP.Agent', $result->getThreat());
-    }
+    // Mock the service manager
+    $mockServiceManager = \Mockery::mock(\Prahsys\Perimeter\Services\ServiceManager::class);
+    $mockServiceManager->shouldReceive('getScanners')
+        ->andReturn(collect([$mockScannerService]));
 
-    /** @test */
-    public function it_can_register_and_trigger_threat_callbacks()
-    {
-        // Override the mock to return an infected file
-        $this->app->singleton(ClamAVService::class, function () {
-            return Mockery::mock(ClamAVService::class, function ($mock) {
-                $mock->shouldReceive('isEnabled')->andReturn(true);
-                $mock->shouldReceive('scanFile')->andReturn(
-                    ScanResult::infected('/path/to/file', 'Trojan.PHP.Agent')
-                );
-            });
-        });
-        
-        $callbackCalled = false;
-        $detectedThreat = null;
-        
-        Perimeter::onThreatDetected(function ($result) use (&$callbackCalled, &$detectedThreat) {
-            $callbackCalled = true;
-            $detectedThreat = $result->getThreat();
-        });
-        
-        $file = UploadedFile::fake()->create('document.php', 100);
-        Perimeter::scan($file);
-        
-        $this->assertTrue($callbackCalled);
-        $this->assertEquals('Trojan.PHP.Agent', $detectedThreat);
-    }
-}
+    // We need to handle all the calls made in the Perimeter constructor
+    $mockServiceManager->shouldReceive('getMonitors')->andReturn(collect([]));
+    $mockServiceManager->shouldReceive('getVulnerabilityScanners')->andReturn(collect([]));
+
+    // Create a mock reporting service
+    $mockReportingService = \Mockery::mock(\Prahsys\Perimeter\Services\ReportingService::class);
+    $mockReportingService->shouldReceive('setClamAVService')->andReturnSelf();
+    $mockReportingService->shouldReceive('setFalcoService')->andReturnSelf();
+    $mockReportingService->shouldReceive('setTrivyService')->andReturnSelf();
+
+    // Create the Perimeter instance with our mocks
+    $perimeter = new \Prahsys\Perimeter\Perimeter(
+        $mockServiceManager,
+        $mockReportingService
+    );
+
+    // Replace the facade instance
+    \Prahsys\Perimeter\Facades\Perimeter::swap($perimeter);
+
+    $file = UploadedFile::fake()->create('document.php', 100);
+
+    $result = Perimeter::scan($file);
+
+    expect($result)->toBeInstanceOf(ScanResult::class);
+    expect($result->hasThreat())->toBeTrue();
+    expect($result->getThreat())->toBe('Trojan.PHP.Agent');
+});
+
+test('it can register and trigger threat callbacks', function () {
+    // Create a standalone Perimeter instance with mocked services for this test
+
+    // Mock the scanner service
+    $mockScannerService = \Mockery::mock(\Prahsys\Perimeter\Contracts\ScannerServiceInterface::class);
+    $mockScannerService->shouldReceive('scanFile')
+        ->andReturn(ScanResult::infected('/path/to/file', 'Trojan.PHP.Agent'));
+    $mockScannerService->shouldReceive('resultToSecurityEventData')
+        ->andReturn(new \Prahsys\Perimeter\Data\SecurityEventData(
+            timestamp: now(),
+            type: 'malware',
+            severity: 'critical',
+            description: 'Detected Trojan.PHP.Agent in file',
+            location: '/path/to/file',
+            user: null,
+            details: ['threat' => 'Trojan.PHP.Agent']
+        ));
+
+    // Mock the service manager
+    $mockServiceManager = \Mockery::mock(\Prahsys\Perimeter\Services\ServiceManager::class);
+    $mockServiceManager->shouldReceive('getScanners')
+        ->andReturn(collect([$mockScannerService]));
+
+    // We need to handle all the calls made in the Perimeter constructor
+    $mockServiceManager->shouldReceive('getMonitors')->andReturn(collect([]));
+    $mockServiceManager->shouldReceive('getVulnerabilityScanners')->andReturn(collect([]));
+
+    // Create a mock reporting service
+    $mockReportingService = \Mockery::mock(\Prahsys\Perimeter\Services\ReportingService::class);
+    $mockReportingService->shouldReceive('setClamAVService')->andReturnSelf();
+    $mockReportingService->shouldReceive('setFalcoService')->andReturnSelf();
+    $mockReportingService->shouldReceive('setTrivyService')->andReturnSelf();
+
+    // Create the Perimeter instance with our mocks
+    $perimeter = new \Prahsys\Perimeter\Perimeter(
+        $mockServiceManager,
+        $mockReportingService
+    );
+
+    // Replace the facade instance
+    \Prahsys\Perimeter\Facades\Perimeter::swap($perimeter);
+
+    $callbackCalled = false;
+    $detectedThreat = null;
+
+    Perimeter::onThreatDetected(function ($result) use (&$callbackCalled, &$detectedThreat) {
+        $callbackCalled = true;
+        $detectedThreat = $result->getThreat();
+    });
+
+    $file = UploadedFile::fake()->create('document.php', 100);
+    Perimeter::scan($file);
+
+    expect($callbackCalled)->toBeTrue();
+    expect($detectedThreat)->toBe('Trojan.PHP.Agent');
+});

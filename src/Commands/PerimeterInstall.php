@@ -21,6 +21,10 @@ class PerimeterInstall extends Command
      */
     protected $description = 'Install and configure all security components';
 
+    protected string $osType = 'unknown';
+
+    protected bool $isRoot = false;
+
     /**
      * Execute the console command.
      *
@@ -28,11 +32,22 @@ class PerimeterInstall extends Command
      */
     public function handle()
     {
+        $this->detectOS();
+        $this->checkSudo();
+
+        if (! $this->isRoot) {
+            $this->error('ERROR: This command must be run with sudo or as root to install system packages.');
+            $this->error('Please run this command as: sudo php artisan perimeter:install');
+            $this->newLine();
+
+            return 1;
+        }
+
         $this->info('Installing Perimeter security components...');
         $this->newLine();
 
         // Publish configuration file
-        if (!File::exists(config_path('perimeter.php')) || $this->option('force')) {
+        if (! File::exists(config_path('perimeter.php')) || $this->option('force')) {
             $this->call('vendor:publish', [
                 '--tag' => 'perimeter-config',
             ]);
@@ -41,16 +56,80 @@ class PerimeterInstall extends Command
         }
         $this->newLine();
 
-        // Install ClamAV
-        $this->installClamAV();
-        $this->newLine();
+        // Dynamically install each service using their dedicated installer
+        // Each service must define an 'installer' key in its config pointing to the installer class
+        $services = config('perimeter.services', []);
 
-        // Install Falco
-        $this->installFalco();
-        $this->newLine();
+        // Track which services have been installed
+        $installedServices = [];
 
-        // Install Trivy
-        $this->installTrivy();
+        foreach ($services as $serviceClass => $config) {
+            // Skip disabled services
+            if (isset($config['enabled']) && $config['enabled'] === false) {
+                $this->line('Skipping disabled service: '.$this->getServiceName($serviceClass));
+
+                continue;
+            }
+
+            // Check if the service has an installer defined
+            if (! isset($config['installer'])) {
+                $this->warn('No installer defined for service: '.$this->getServiceName($serviceClass));
+
+                continue;
+            }
+
+            $installerClass = $config['installer'];
+            $this->info('Installing '.$this->getServiceName($serviceClass).'...');
+
+            // Find the command name for this installer class
+            $kernel = $this->getLaravel()->make('Illuminate\Contracts\Console\Kernel');
+            $commandName = null;
+
+            foreach ($kernel->all() as $name => $command) {
+                if (get_class($command) === $installerClass) {
+                    $commandName = $name;
+                    break;
+                }
+            }
+
+            if (! $commandName) {
+                $this->warn("Could not resolve command name for installer: $installerClass");
+
+                continue;
+            }
+
+            // Prepare command options
+            $options = ['--force' => $this->option('force')];
+
+            // Add OS type and root status options if supported
+            $command = $kernel->all()[$commandName];
+            $definition = $command->getDefinition();
+
+            if ($definition->hasOption('os-type')) {
+                $options['--os-type'] = $this->osType;
+            }
+
+            if ($definition->hasOption('is-root')) {
+                $options['--is-root'] = $this->isRoot;
+            }
+
+            // Add configure option for Fail2ban if supported
+            if (strpos($installerClass, 'InstallFail2ban') !== false && $definition->hasOption('configure')) {
+                $options['--configure'] = true;
+            }
+
+            // Call the install command with appropriate options
+            $this->call($commandName, $options);
+
+            $installedServices[] = $this->getServiceName($serviceClass);
+            $this->newLine();
+        }
+
+        if (empty($installedServices)) {
+            $this->warn('No services were installed. Make sure your configuration includes valid services.');
+        } else {
+            $this->info('Installed services: '.implode(', ', $installedServices));
+        }
         $this->newLine();
 
         // Configure environment
@@ -63,152 +142,69 @@ class PerimeterInstall extends Command
 
         $this->info('Add the following to your scheduler to enable regular security scanning:');
         $this->line('  $schedule->command(\'perimeter:audit\')->daily();');
-        $this->line('  $schedule->command(\'perimeter:report --compliance=soc2\')->weekly();');
         $this->newLine();
 
         return 0;
     }
 
     /**
-     * Install ClamAV.
-     *
-     * @return void
+     * Detect the current operating system.
      */
-    protected function installClamAV(): void
+    protected function detectOS(): void
     {
-        $this->info('Installing ClamAV...');
-
-        // In a real implementation, we would check the OS and install ClamAV
-        // using the appropriate package manager or provide instructions.
-        
-        // For Ubuntu/Debian:
-        // apt-get update && apt-get install -y clamav clamav-daemon
-        
-        // For macOS:
-        // brew install clamav
-        
-        // For this demo, we just simulate the installation
-        $this->line('Simulating ClamAV installation...');
-        sleep(1);
-        
-        $this->info('ClamAV installed successfully. Configuring...');
-        
-        // Create directories for Perimeter rules if needed
-        $rulesPath = base_path('perimeter-rules/clamav');
-        if (!File::exists($rulesPath)) {
-            File::makeDirectory($rulesPath, 0755, true);
+        $uname = strtolower(php_uname('s'));
+        if (str_contains($uname, 'darwin')) {
+            $this->osType = 'macos';
+        } elseif (str_contains($uname, 'linux')) {
+            $osRelease = @file_get_contents('/etc/os-release');
+            if ($osRelease && str_contains($osRelease, 'ubuntu') || str_contains($osRelease, 'debian')) {
+                $this->osType = 'debian';
+            }
         }
-        
-        $this->info('ClamAV configuration complete.');
+
+        $this->info("Detected OS: {$this->osType}");
     }
 
     /**
-     * Install Falco.
-     *
-     * @return void
+     * Check for root privileges.
      */
-    protected function installFalco(): void
+    protected function checkSudo(): void
     {
-        $this->info('Installing Falco...');
+        // Check if running as root (uid 0)
+        $this->isRoot = function_exists('posix_geteuid') ? posix_geteuid() === 0 : false;
 
-        // In a real implementation, we would check the OS and install Falco
-        // using the appropriate package manager or provide instructions.
-        
-        // For Ubuntu/Debian:
-        // curl -s https://falco.org/repo/falcosecurity-3672BA8F.asc | apt-key add -
-        // echo "deb https://download.falco.org/packages/deb stable main" | tee -a /etc/apt/sources.list.d/falcosecurity.list
-        // apt-get update && apt-get install -y falco
-        
-        // For this demo, we just simulate the installation
-        $this->line('Simulating Falco installation...');
-        sleep(1);
-        
-        $this->info('Falco installed successfully. Configuring...');
-        
-        // Create directories for Perimeter rules if needed
-        $rulesPath = base_path('perimeter-rules/falco');
-        if (!File::exists($rulesPath)) {
-            File::makeDirectory($rulesPath, 0755, true);
-            
-            // Create sample Falco rules file
-            $sampleRulesContent = <<<'EOT'
-# Laravel-specific Falco rules
-
-- rule: Laravel Mass Assignment Attempt
-  desc: Detect potential mass assignment vulnerability exploitation
-  condition: proc.name = "php" and fd.name contains "artisan" and evt.type = execve and evt.arg.args contains "mass" and evt.arg.args contains "assignment"
-  output: Potential mass assignment vulnerability exploitation (user=%user.name process=%proc.name command=%proc.cmdline)
-  priority: high
-  tags: [application, laravel, security]
-
-- rule: Laravel SQL Injection Pattern
-  desc: Detect potential SQL injection patterns in Laravel queries
-  condition: proc.name = "php" and fd.name contains "artisan" and evt.type = execve and evt.arg.args contains "SELECT" and (evt.arg.args contains "1=1" or evt.arg.args contains "UNION")
-  output: Potential SQL injection pattern detected (user=%user.name process=%proc.name command=%proc.cmdline)
-  priority: critical
-  tags: [application, laravel, security]
-
-- rule: Laravel Suspicious File Write
-  desc: Detect suspicious file writes to system directories
-  condition: proc.name = "php" and fd.name contains "artisan" and evt.type = open and fd.directory = "/etc" and evt.arg.flags contains "O_WRONLY"
-  output: Suspicious file write detected to system directory (user=%user.name process=%proc.name file=%fd.name)
-  priority: critical
-  tags: [application, laravel, security]
-
-- rule: Laravel Command Injection
-  desc: Detect potential command injection in Laravel
-  condition: proc.name = "php" and proc.pname = "php-fpm" and evt.type = execve and (proc.cmdline contains ";" or proc.cmdline contains "|" or proc.cmdline contains "&&")
-  output: Potential command injection detected (user=%user.name process=%proc.name command=%proc.cmdline)
-  priority: critical
-  tags: [application, laravel, security]
-EOT;
-            
-            File::put($rulesPath . '/laravel-rules.yaml', $sampleRulesContent);
+        // Alternative check for Windows or environments without posix
+        if (! $this->isRoot && strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+            // On Windows, check if running as Administrator
+            $this->isRoot = isset($_SERVER['SESSIONNAME']) && preg_match('/SYSTEM|Administrator/i', $_SERVER['SESSIONNAME']);
         }
-        
-        $this->info('Falco configuration complete.');
+
+        // No special handling for CI environments - behavior should be consistent
     }
 
-    /**
-     * Install Trivy.
-     *
-     * @return void
-     */
-    protected function installTrivy(): void
-    {
-        $this->info('Installing Trivy...');
+    // Removed isInCIEnvironment method - we don't need special handling for CI
 
-        // In a real implementation, we would check the OS and install Trivy
-        // using the appropriate package manager or provide instructions.
-        
-        // For Ubuntu/Debian:
-        // apt-get install -y wget apt-transport-https gnupg lsb-release
-        // wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add -
-        // echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | tee -a /etc/apt/sources.list.d/trivy.list
-        // apt-get update && apt-get install -y trivy
-        
-        // For macOS:
-        // brew install aquasecurity/trivy/trivy
-        
-        // For this demo, we just simulate the installation
-        $this->line('Simulating Trivy installation...');
-        sleep(1);
-        
-        $this->info('Trivy installed successfully.');
+    /**
+     * Extract the short name from a fully qualified class name
+     */
+    protected function getServiceName(string $className): string
+    {
+        $parts = explode('\\', $className);
+
+        return end($parts);
     }
 
     /**
      * Configure environment.
-     *
-     * @return void
      */
     protected function configureEnvironment(): void
     {
         $this->info('Configuring environment...');
 
         // Check if .env file exists
-        if (!File::exists(base_path('.env'))) {
+        if (! File::exists(base_path('.env'))) {
             $this->warn('.env file not found. Skipping environment configuration.');
+
             return;
         }
 
@@ -218,46 +214,46 @@ EOT;
         // Add Perimeter configuration if not already present
         $additions = [];
 
-        if (!str_contains($envContent, 'PERIMETER_ENABLED')) {
+        // Core configuration
+        if (! str_contains($envContent, 'PERIMETER_ENABLED')) {
             $additions[] = 'PERIMETER_ENABLED=true';
         }
 
-        if (!str_contains($envContent, 'PERIMETER_LOG_CHANNELS')) {
+        if (! str_contains($envContent, 'PERIMETER_LOG_CHANNELS')) {
             $additions[] = 'PERIMETER_LOG_CHANNELS=stack';
         }
 
-        if (!str_contains($envContent, 'PERIMETER_CLAMAV_ENABLED')) {
-            $additions[] = 'PERIMETER_CLAMAV_ENABLED=true';
-        }
-
-        if (!str_contains($envContent, 'PERIMETER_FALCO_ENABLED')) {
-            $additions[] = 'PERIMETER_FALCO_ENABLED=true';
-        }
-
-        if (!str_contains($envContent, 'PERIMETER_TRIVY_ENABLED')) {
-            $additions[] = 'PERIMETER_TRIVY_ENABLED=true';
-        }
-
-        if (!str_contains($envContent, 'PERIMETER_REALTIME_SCAN')) {
+        if (! str_contains($envContent, 'PERIMETER_REALTIME_SCAN')) {
             $additions[] = 'PERIMETER_REALTIME_SCAN=true';
         }
 
+        // Dynamic service configuration based on registered services
+        $services = config('perimeter.services', []);
+        foreach ($services as $serviceClass => $config) {
+            $serviceName = $this->getServiceName($serviceClass);
+            $serviceEnvKey = 'PERIMETER_'.strtoupper(str_replace('Service', '', $serviceName)).'_ENABLED';
+
+            if (! str_contains($envContent, $serviceEnvKey)) {
+                $additions[] = $serviceEnvKey.'=true';
+            }
+        }
+
         // Add the additions to .env file if there are any
-        if (!empty($additions)) {
+        if (! empty($additions)) {
             // Add a new line if the file doesn't end with one
-            if (!str_ends_with($envContent, PHP_EOL)) {
+            if (! str_ends_with($envContent, PHP_EOL)) {
                 $envContent .= PHP_EOL;
             }
 
             // Add a comment for the Perimeter section
-            $envContent .= PHP_EOL . '# Perimeter Security Configuration' . PHP_EOL;
-            
+            $envContent .= PHP_EOL.'# Perimeter Security Configuration'.PHP_EOL;
+
             // Add each new configuration
-            $envContent .= implode(PHP_EOL, $additions) . PHP_EOL;
+            $envContent .= implode(PHP_EOL, $additions).PHP_EOL;
 
             // Write back to .env file
             File::put(base_path('.env'), $envContent);
-            
+
             $this->info('Added Perimeter configuration to .env file.');
         } else {
             $this->line('Perimeter configuration already exists in .env file.');

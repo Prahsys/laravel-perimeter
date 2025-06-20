@@ -1,0 +1,13 @@
+Running point-in-time security check...
+
+SECURITY EVENTS DETECTED
+
++----------+-----------------------------+----------+----------+------------------+
+| Priority | Rule                        | Process  | User     | Timestamp        |
++----------+-----------------------------+----------+----------+------------------+
+| CRITICAL | Shell in Container          | bash     | root     | 2025-06-15 13:35 |
+| WARNING  | Sensitive File Access       | cat      | www-data | 2025-06-15 13:36 |
+| CRITICAL | PHP Command Injection       | php      | www-data | 2025-06-15 13:37 |
+| CRITICAL | Package Management Detected | apt-get  | root     | 2025-06-15 13:38 |
+| NOTICE   | Binary Directory Modified   | touch    | root     | 2025-06-15 13:39 |
++----------+-----------------------------+----------+----------+------------------+
