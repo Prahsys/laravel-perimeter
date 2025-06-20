@@ -1,0 +1,182 @@
+#!/bin/bash
+
+# Default values
+FORMAT="text"
+EVENTS_COUNT=10
+ACTION=""
+
+# Usage
+function usage {
+    echo "Usage: falco-status [OPTIONS]"
+    echo "Options:"
+    echo "  --json               Output in JSON format"
+    echo "  --events [COUNT]     Show recent events (default: 10, use 0 for all)"
+    echo "  --rules              List active rules"
+    echo "  --help               Show this help message"
+    exit 1
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --json)
+      FORMAT="json"
+      shift
+      ;;
+    --events)
+      ACTION="events"
+      if [[ $2 =~ ^[0-9]+$ ]]; then
+        EVENTS_COUNT=$2
+        shift
+      fi
+      shift
+      ;;
+    --rules)
+      ACTION="rules"
+      shift
+      ;;
+    --help)
+      usage
+      ;;
+    *)
+      echo "Unknown option $1"
+      usage
+      ;;
+  esac
+done
+
+# Check if Falco is running
+if ! systemctl is-active --quiet falco-modern-bpf.service; then
+    if [[ "$FORMAT" == "json" ]]; then
+        echo '{"status":"not_running","error":"Falco service is not running"}'
+    else
+        echo "Error: Falco service is not running."
+        echo "Run 'systemctl start falco-modern-bpf.service' to start it."
+    fi
+    exit 1
+fi
+
+# Get Falco version
+FALCO_VERSION=$(falco --version 2>&1 | head -n 1)
+
+# Get Falco service status
+SERVICE_STATUS=$(systemctl status falco-modern-bpf.service --no-pager)
+SERVICE_ACTIVE=$(echo "$SERVICE_STATUS" | grep "Active:" | sed 's/Active: //')
+
+# Show rules
+if [[ "$ACTION" == "rules" ]]; then
+    RULES=$(falco --list-rules 2>/dev/null)
+    
+    if [[ "$FORMAT" == "json" ]]; then
+        # Convert rules to JSON
+        echo '{'
+        echo '  "status": "running",'
+        echo '  "version": "'"$FALCO_VERSION"'",'
+        echo '  "rules": ['
+        
+        # Process each rule
+        FIRST=true
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^- ]]; then
+                RULE_NAME=$(echo "$line" | cut -d':' -f1 | sed 's/- //')
+                RULE_DESC=$(echo "$line" | cut -d':' -f2- | sed 's/^ //')
+                
+                if [[ "$FIRST" == "false" ]]; then
+                    echo ','
+                fi
+                FIRST=false
+                
+                echo -n '    {"name": "'"$RULE_NAME"'", "description": "'"$RULE_DESC"'"}'
+            fi
+        done <<< "$RULES"
+        
+        echo ''
+        echo '  ]'
+        echo '}'
+    else
+        echo "Falco Rules:"
+        echo "======================="
+        echo "$RULES"
+    fi
+    
+    exit 0
+fi
+
+# Show events
+if [[ "$ACTION" == "events" ]]; then
+    # Get recent events from journal
+    if [[ $EVENTS_COUNT -eq 0 ]]; then
+        EVENTS=$(journalctl -u falco-modern-bpf.service | grep "Warning\|Critical" | tail -n 1000)
+    else
+        EVENTS=$(journalctl -u falco-modern-bpf.service | grep "Warning\|Critical" | tail -n $EVENTS_COUNT)
+    fi
+    
+    if [[ "$FORMAT" == "json" ]]; then
+        # Convert events to JSON
+        echo '{'
+        echo '  "status": "running",'
+        echo '  "version": "'"$FALCO_VERSION"'",'
+        echo '  "events": ['
+        
+        # Process each event
+        FIRST=true
+        while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+                # Extract timestamp, priority, and message
+                TIMESTAMP=$(echo "$line" | awk '{print $1, $2, $3}')
+                PRIORITY=$(echo "$line" | grep -o "Warning\|Critical")
+                MESSAGE=$(echo "$line" | awk -F 'falco: ' '{print $2}')
+                
+                if [[ "$FIRST" == "false" ]]; then
+                    echo ','
+                fi
+                FIRST=false
+                
+                echo -n '    {'
+                echo -n '"timestamp": "'"$TIMESTAMP"'",'
+                echo -n '"priority": "'"$PRIORITY"'",'
+                echo -n '"message": "'"$MESSAGE"'"'
+                echo -n '}'
+            fi
+        done <<< "$EVENTS"
+        
+        echo ''
+        echo '  ]'
+        echo '}'
+    else
+        echo "Falco Security Events:"
+        echo "======================="
+        if [[ -z "$EVENTS" ]]; then
+            echo "No security events detected yet."
+        else
+            echo "$EVENTS"
+        fi
+    fi
+    
+    exit 0
+fi
+
+# Default action is to show status
+if [[ "$FORMAT" == "json" ]]; then
+    echo '{'
+    echo '  "status": "running",'
+    echo '  "version": "'"$FALCO_VERSION"'",'
+    echo '  "service": {'
+    echo '    "active": "'"$SERVICE_ACTIVE"'",'
+    echo '    "pid": '$(systemctl show --property MainPID falco-modern-bpf.service | cut -d= -f2)','
+    echo '    "memory": "'"$(ps -o rss= -p $(systemctl show --property MainPID falco-modern-bpf.service | cut -d= -f2) 2>/dev/null | awk '{print int($1/1024)}' || echo "0")"' MB"'
+    echo '  },'
+    echo '  "rules_count": '$(falco --list-rules 2>/dev/null | grep -c "^-" || echo "0")''
+    echo '}'
+else
+    echo "Falco Status:"
+    echo "======================="
+    echo "Version: $FALCO_VERSION"
+    echo "Service: $SERVICE_ACTIVE"
+    echo "Rules: $(falco --list-rules 2>/dev/null | grep -c "^-" || echo "0") active rules"
+    echo ""
+    echo "For detailed information:"
+    echo "  falco-status --events    - Show recent security events"
+    echo "  falco-status --rules     - List active security rules"
+    echo "  falco-status --json      - Get status in JSON format"
+fi

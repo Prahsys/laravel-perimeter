@@ -24,6 +24,6 @@ class Perimeter extends Facade
      */
     protected static function getFacadeAccessor()
     {
-        return 'perimeter';
+        return \Prahsys\Perimeter\Perimeter::class;
     }
 }

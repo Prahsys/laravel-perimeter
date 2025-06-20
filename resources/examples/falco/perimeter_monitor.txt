@@ -1,0 +1,29 @@
+Laravel Perimeter - Runtime Monitoring Report
+=============================================
+
+Running with Falco version: 0.41.1
+
+Recent Security Events:
++----------+-------------------------+----------+----------+
+| Priority | Description             | Process  | User     |
++----------+-------------------------+----------+----------+
+| NOTICE   | Terminal in container   | bash     | root     |
+| WARNING  | Unauthorized access     | cat      | www-data |
+| WARNING  | Suspicious connection   | nc       | www-data |
+| CRITICAL | Package management      | apt-get  | root     |
+| NOTICE   | Suspicious file access  | touch    | root     |
++----------+-------------------------+----------+----------+
+
+System Summary:
+- Active monitoring: Enabled
+- Driver type: modern_ebpf
+- Rules loaded: 42
+- Events detected in last 24h: 8
+
+Runtime Environment:
+- Container ID: 3dc26b7c86f8
+- Image: prahsys-laravel-perimeter
+- Rules directory: /etc/falco/rules.d
+
+To see detailed event information, run:
+php artisan perimeter:report --type=behavior

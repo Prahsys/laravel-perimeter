@@ -1,0 +1,24 @@
+Starting real-time security monitoring...
+Press Ctrl+C to stop monitoring (will run for 3600 seconds otherwise)
+
+2025-06-15 13:45:10 - Monitoring active, no new events
+2025-06-15 13:45:15 - Monitoring active, no new events
+2025-06-15 13:45:20 - 1 new security event(s) detected
+
+CRITICAL - Shell in Container (user=root process=bash)
+
+2025-06-15 13:45:25 - Monitoring active, no new events
+2025-06-15 13:45:30 - 2 new security event(s) detected
+
+WARNING - Sensitive File Access (user=www-data process=cat file=/etc/passwd)
+
+2025-06-15 13:45:35 - Monitoring active, no new events
+2025-06-15 13:45:40 - 1 new security event(s) detected
+
+CRITICAL - PHP Command Injection (user=www-data process=php arguments=shell_exec)
+
+2025-06-15 13:45:45 - Monitoring active, no new events
+2025-06-15 13:45:50 - Monitoring active, no new events
+2025-06-15 13:45:55 - Monitoring active, no new events
+
+Monitoring complete.

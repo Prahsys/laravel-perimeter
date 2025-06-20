@@ -1,0 +1,12 @@
+[Unit]
+Description=ClamAV Freshclam Database Updater
+After=network.target
+ 
+[Service]
+Type=simple
+ExecStart=/usr/bin/freshclam -d --foreground=true
+Restart=on-failure
+RestartSec=5s
+ 
+[Install]
+WantedBy=multi-user.target

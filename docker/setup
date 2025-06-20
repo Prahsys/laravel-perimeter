@@ -1,0 +1,77 @@
+#!/bin/bash
+set -e
+
+# Create a service unit file for the Laravel application
+cat > /etc/systemd/system/laravel.service << 'EOF'
+[Unit]
+Description=Laravel Web Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/var/www/laravel-app
+ExecStart=/usr/bin/php artisan serve --host=0.0.0.0 --port=8000
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Create a systemd unit file for fail2ban
+cat > /etc/systemd/system/fail2ban.service << 'EOF'
+[Unit]
+Description=Fail2Ban Service
+Documentation=man:fail2ban(1)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/fail2ban-server -f -x -v start
+ExecReload=/usr/bin/fail2ban-client reload
+ExecStop=/usr/bin/fail2ban-client stop
+Restart=on-failure
+PIDFile=/var/run/fail2ban/fail2ban.pid
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Create directories for service PIDs
+mkdir -p /var/run/fail2ban
+
+# Configure fail2ban
+mkdir -p /etc/fail2ban/action.d
+cat > /etc/fail2ban/action.d/dummy.conf << 'EOF'
+[Definition]
+actionstart =
+actionstop =
+actioncheck =
+actionban = echo "Ban <ip>" >> /var/log/fail2ban/banned.log
+actionunban = echo "Unban <ip>" >> /var/log/fail2ban/banned.log
+EOF
+
+cat > /etc/fail2ban/jail.local << 'EOF'
+[DEFAULT]
+ignoreip = 127.0.0.1/8
+bantime = 3600
+findtime = 600
+maxretry = 5
+backend = auto
+banaction = dummy
+
+[sshd]
+enabled = true
+filter = sshd
+logpath = /var/log/auth/auth.log
+action = dummy
+EOF
+
+# Enable systemd services
+systemctl enable laravel.service
+systemctl enable fail2ban.service
+
+echo "Systemd services configured."
+exit 0

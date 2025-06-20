@@ -1,0 +1,16 @@
+{
+  "cache": {
+    "dir": "/root/.cache/trivy/db"
+  },
+  "db": {
+    "download-only": true
+  },
+  "parallel": 1,
+  "timeout": 300,
+  "skip-files": [
+    "node_modules",
+    "vendor",
+    ".git"
+  ],
+  "quiet": true
+}

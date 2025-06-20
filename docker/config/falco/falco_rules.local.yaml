@@ -1,0 +1,41 @@
+- rule: Detect PHP Webshell
+  desc: Detect potential PHP webshell execution
+  condition: >
+    spawned_process and
+    proc.name = "php" and
+    (proc.cmdline contains "exec" or
+     proc.cmdline contains "shell_exec" or
+     proc.cmdline contains "system" or
+     proc.cmdline contains "passthru" or
+     proc.cmdline contains "eval")
+  output: >
+    Potential PHP webshell execution (user=%user.name command=%proc.cmdline file=%proc.cwd/%proc.name)
+  priority: WARNING
+  tags: [process, mitre_execution]
+
+- rule: Suspicious Outbound Connection
+  desc: Detect suspicious outbound connections from web service processes
+  condition: >
+    outbound and
+    not (fd.sport <= 1024) and
+    (proc.name = "nginx" or proc.name = "apache2" or proc.name = "php" or proc.name = "php-fpm") and
+    not (fd.sip="127.0.0.1" or fd.sip="::1") and
+    not (fd.sport in (80, 443, 8080, 8443))
+  output: >
+    Suspicious outbound connection (process=%proc.name command=%proc.cmdline connection=%fd.name)
+  priority: WARNING
+  tags: [network, mitre_command_and_control]
+
+- rule: Suspicious File Access
+  desc: Detect suspicious file access patterns in web directories
+  condition: >
+    open_write and 
+    fd.name glob "/var/www/*" and
+    (fd.name endswith ".php" or
+     fd.name endswith ".phar" or
+     fd.name endswith ".cgi") and
+    not proc.name in ("composer", "php", "php-fpm", "npm", "node")
+  output: >
+    Suspicious file creation or modification in web directory (user=%user.name command=%proc.cmdline file=%fd.name)
+  priority: WARNING
+  tags: [filesystem, mitre_persistence]

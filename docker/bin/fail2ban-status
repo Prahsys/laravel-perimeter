@@ -1,0 +1,119 @@
+#!/bin/bash
+
+# Default output format
+FORMAT="text"
+JAIL=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --json)
+      FORMAT="json"
+      shift
+      ;;
+    --jail=*)
+      JAIL="${1#*=}"
+      shift
+      ;;
+    --help)
+      echo "Usage: fail2ban-status [--json] [--jail=JAIL_NAME]"
+      echo "Options:"
+      echo "  --json         Output in JSON format"
+      echo "  --jail=JAIL    Show status for specific jail"
+      echo "  --help         Show this help message"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Use --help to see available options"
+      exit 1
+      ;;
+  esac
+done
+
+# Get list of all jails
+JAILS=$(fail2ban-client status | grep "Jail list" | sed -E 's/^[^:]+:[ \t]+//' | sed 's/,//g')
+
+if [[ -n "$JAIL" ]]; then
+  # Check if specified jail exists
+  if ! echo "$JAILS" | grep -q "\b$JAIL\b"; then
+    echo "Error: Jail '$JAIL' not found."
+    exit 1
+  fi
+  
+  # Get status for specific jail
+  STATUS=$(fail2ban-client status "$JAIL")
+  
+  if [[ "$FORMAT" == "json" ]]; then
+    # Extract values
+    CURRENTLY_FAILED=$(echo "$STATUS" | grep "Currently failed:" | awk '{print $NF}')
+    TOTAL_FAILED=$(echo "$STATUS" | grep "Total failed:" | awk '{print $NF}')
+    FILE_LIST=$(echo "$STATUS" | grep "File list:" | sed -E 's/^[^:]+:[ \t]+//')
+    CURRENTLY_BANNED=$(echo "$STATUS" | grep "Currently banned:" | awk '{print $NF}')
+    TOTAL_BANNED=$(echo "$STATUS" | grep "Total banned:" | awk '{print $NF}')
+    BANNED_IPS=$(echo "$STATUS" | grep "Banned IP list:" | sed -E 's/^[^:]+:[ \t]+//')
+    
+    echo "{"
+    echo "  \"jail\": \"$JAIL\","
+    echo "  \"filter\": {"
+    echo "    \"currently_failed\": $CURRENTLY_FAILED,"
+    echo "    \"total_failed\": $TOTAL_FAILED,"
+    echo "    \"file_list\": \"$FILE_LIST\""
+    echo "  },"
+    echo "  \"actions\": {"
+    echo "    \"currently_banned\": $CURRENTLY_BANNED,"
+    echo "    \"total_banned\": $TOTAL_BANNED,"
+    echo "    \"banned_ips\": \"$BANNED_IPS\""
+    echo "  }"
+    echo "}"
+  else
+    echo "$STATUS"
+  fi
+else
+  # Get status for all jails
+  if [[ "$FORMAT" == "json" ]]; then
+    echo "{"
+    echo "  \"version\": \"$(fail2ban-client --version | head -n1)\","
+    echo "  \"jails\": ["
+    
+    FIRST=true
+    for jail in $JAILS; do
+      if [[ "$FIRST" == "false" ]]; then
+        echo ","
+      fi
+      FIRST=false
+      
+      # Get jail status
+      JAIL_STATUS=$(fail2ban-client status "$jail")
+      CURRENTLY_FAILED=$(echo "$JAIL_STATUS" | grep "Currently failed:" | awk '{print $NF}')
+      TOTAL_FAILED=$(echo "$JAIL_STATUS" | grep "Total failed:" | awk '{print $NF}')
+      FILE_LIST=$(echo "$JAIL_STATUS" | grep "File list:" | sed -E 's/^[^:]+:[ \t]+//')
+      CURRENTLY_BANNED=$(echo "$JAIL_STATUS" | grep "Currently banned:" | awk '{print $NF}')
+      TOTAL_BANNED=$(echo "$JAIL_STATUS" | grep "Total banned:" | awk '{print $NF}')
+      BANNED_IPS=$(echo "$JAIL_STATUS" | grep "Banned IP list:" | sed -E 's/^[^:]+:[ \t]+//')
+      
+      echo -n "    {"
+      echo -n "\"name\": \"$jail\", "
+      echo -n "\"currently_failed\": $CURRENTLY_FAILED, "
+      echo -n "\"total_failed\": $TOTAL_FAILED, "
+      echo -n "\"currently_banned\": $CURRENTLY_BANNED, "
+      echo -n "\"total_banned\": $TOTAL_BANNED, "
+      echo -n "\"banned_ips\": \"$BANNED_IPS\""
+      echo -n "}"
+    done
+    
+    echo ""
+    echo "  ]"
+    echo "}"
+  else
+    fail2ban-client status
+    echo ""
+    echo "Jail details:"
+    for jail in $JAILS; do
+      echo "-------------------------------------"
+      echo "Jail: $jail"
+      fail2ban-client status "$jail" | grep -v "Status for the jail"
+      echo ""
+    done
+  fi
+fi

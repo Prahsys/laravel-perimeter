@@ -7,23 +7,19 @@ class ScanResult
     /**
      * Create a new scan result instance.
      *
-     * @param string $filePath
-     * @param bool $hasThreat
-     * @param string|null $threat
      * @return void
      */
     public function __construct(
         protected string $filePath,
         protected bool $hasThreat = false,
-        protected ?string $threat = null
+        protected ?string $threat = null,
+        protected ?string $fileHash = null
     ) {
         //
     }
 
     /**
      * Determine if the scan found a threat.
-     *
-     * @return bool
      */
     public function hasThreat(): bool
     {
@@ -32,8 +28,6 @@ class ScanResult
 
     /**
      * Get the threat description.
-     *
-     * @return string|null
      */
     public function getThreat(): ?string
     {
@@ -42,8 +36,6 @@ class ScanResult
 
     /**
      * Get the file path that was scanned.
-     *
-     * @return string
      */
     public function getFilePath(): string
     {
@@ -51,25 +43,30 @@ class ScanResult
     }
 
     /**
+     * Get the file hash, if available.
+     */
+    public function getFileHash(): ?string
+    {
+        return $this->fileHash;
+    }
+
+    /**
      * Create a new scan result for a clean file.
      *
-     * @param string $filePath
      * @return static
      */
-    public static function clean(string $filePath): self
+    public static function clean(string $filePath, ?string $fileHash = null): self
     {
-        return new static($filePath, false, null);
+        return new static($filePath, false, null, $fileHash);
     }
 
     /**
      * Create a new scan result for an infected file.
      *
-     * @param string $filePath
-     * @param string $threat
      * @return static
      */
-    public static function infected(string $filePath, string $threat): self
+    public static function infected(string $filePath, string $threat, ?string $fileHash = null): self
     {
-        return new static($filePath, true, $threat);
+        return new static($filePath, true, $threat, $fileHash);
     }
 }

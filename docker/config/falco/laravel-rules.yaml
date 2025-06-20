@@ -1,0 +1,8 @@
+# Laravel-specific Falco rules
+
+- rule: Laravel Mass Assignment Attempt
+  desc: Detect potential mass assignment vulnerability exploitation
+  condition: proc.name = "php" and fd.name contains "artisan" and evt.type = execve and evt.arg.args contains "mass" and evt.arg.args contains "assignment"
+  output: Potential mass assignment vulnerability exploitation (user=%user.name process=%proc.name command=%proc.cmdline)
+  priority: high
+  tags: [application, laravel, security]

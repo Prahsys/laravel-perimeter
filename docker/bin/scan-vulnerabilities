@@ -1,0 +1,65 @@
+#!/bin/bash
+
+# Default values
+SEVERITY="MEDIUM,HIGH,CRITICAL"
+FORMAT="table"
+OUTPUT=""
+TARGET=${1:-"/var/www/laravel-app"}
+
+# Usage
+function usage {
+    echo "Usage: scan-vulnerabilities [OPTIONS] [TARGET]"
+    echo "Options:"
+    echo "  --severity=SEV    Set severity threshold (LOW,MEDIUM,HIGH,CRITICAL). Default: MEDIUM,HIGH,CRITICAL"
+    echo "  --format=FORMAT   Output format (table,json). Default: table"
+    echo "  --output=FILE     Write results to FILE instead of stdout"
+    echo "  --help            Show this help message"
+    echo "Target defaults to /var/www/laravel-app if not specified"
+    exit 1
+}
+
+# Parse arguments
+for arg in "$@"; do
+    case $arg in
+        --severity=*)
+        SEVERITY="${arg#*=}"
+        shift
+        ;;
+        --format=*)
+        FORMAT="${arg#*=}"
+        shift
+        ;;
+        --output=*)
+        OUTPUT="${arg#*=}"
+        shift
+        ;;
+        --help)
+        usage
+        ;;
+        -*|--*)
+        echo "Unknown option $arg"
+        usage
+        ;;
+        *)
+        # Last argument is the target
+        if [[ "$arg" != --* ]]; then
+            TARGET="$arg"
+        fi
+        ;;
+    esac
+done
+
+# Build the command
+CMD="trivy --cache-dir /var/log/trivy/.cache filesystem --severity $SEVERITY"
+
+if [[ "$FORMAT" == "json" ]]; then
+    CMD="$CMD --format json"
+fi
+
+if [[ -n "$OUTPUT" ]]; then
+    CMD="$CMD --output $OUTPUT"
+fi
+
+# Execute the scan
+echo "Scanning $TARGET for vulnerabilities with severity $SEVERITY..."
+$CMD "$TARGET"

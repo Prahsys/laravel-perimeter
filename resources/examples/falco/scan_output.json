@@ -1,0 +1,52 @@
+{
+  "time": "2025-06-15T10:15:30.159766067Z",
+  "rule": "Terminal shell in container",
+  "priority": "NOTICE",
+  "source": "syscall",
+  "tags": ["container", "shell", "mitre_execution"],
+  "output": "A shell was spawned in a container with an attached terminal (user=root user_loginuid=-1 container_id=prahsys-laravel-perimeter shell=bash parent=<NA> cmdline=bash terminal=34817 container_id=3dc26b7c86f8 image=prahsys-laravel-perimeter)",
+  "hostname": "container-host",
+  "container": {
+    "id": "3dc26b7c86f8",
+    "name": "prahsys-laravel-perimeter",
+    "image": "prahsys-laravel-perimeter:latest"
+  },
+  "process": {
+    "name": "bash",
+    "cmdline": "bash",
+    "pid": 12345,
+    "ppid": 1
+  },
+  "user": {
+    "name": "root",
+    "uid": 0
+  }
+}
+{
+  "time": "2025-06-15T10:16:12.842912720Z",
+  "rule": "Unauthorized file access",
+  "priority": "WARNING",
+  "source": "syscall",
+  "tags": ["filesystem", "mitre_credential_access"],
+  "output": "Unauthorized file access attempt detected (user=www-data user_loginuid=-1 command=cat /etc/passwd parent=bash pcmdline=bash file=/etc/passwd container_id=3dc26b7c86f8 container_name=prahsys-laravel-perimeter)",
+  "hostname": "container-host",
+  "container": {
+    "id": "3dc26b7c86f8",
+    "name": "prahsys-laravel-perimeter",
+    "image": "prahsys-laravel-perimeter:latest"
+  },
+  "process": {
+    "name": "cat",
+    "cmdline": "cat /etc/passwd",
+    "pid": 12346,
+    "ppid": 12345
+  },
+  "user": {
+    "name": "www-data",
+    "uid": 33
+  },
+  "file": {
+    "path": "/etc/passwd",
+    "name": "passwd"
+  }
+}

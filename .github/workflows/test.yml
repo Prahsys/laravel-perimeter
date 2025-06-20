@@ -1,0 +1,42 @@
+name: Test Package
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Docker
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build and start Docker containers
+      run: |
+        chmod +x docker-entrypoint.sh
+        echo "APP_ENV=local" > .env
+        docker compose build
+        docker compose up -d
+
+    - name: Wait for containers to be ready
+      run: sleep 25
+
+    - name: Check package installation
+      run: docker compose exec -T app php artisan list | grep perimeter
+
+    - name: Run package installation command
+      run: |
+        docker compose exec -T app php artisan perimeter:install --force
+
+    - name: Run package health check
+      run: |
+        docker compose exec -T app php artisan perimeter:health
+
+    - name: Run tests
+      run: |
+        docker compose exec -T app composer test

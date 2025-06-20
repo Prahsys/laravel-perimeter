@@ -1,0 +1,13 @@
+[DEFAULT]
+ignoreip = 127.0.0.1/8
+bantime = 3600
+findtime = 600
+maxretry = 5
+backend = auto
+banaction = dummy
+
+[sshd]
+enabled = true
+filter = sshd
+logpath = /var/log/auth/auth.log
+action = dummy

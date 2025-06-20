@@ -1,0 +1,11 @@
+[Unit]
+Description=Uncomplicated Firewall
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/ufw --force enable
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
