@@ -20,16 +20,14 @@ test('clamav scan result to dto', function () {
         'threat' => $scanResult->getThreat(),
         'file' => $scanResult->getFilePath(),
         'hash' => $scanResult->getFileHash(),
-    ], 'test-scan');
+        'scan_id' => 123,
+    ]);
 
     // Assert the data object has the correct values
     expect($data->getType())->toBe('malware');
     expect($data->getDescription())->toBe('Detected Eicar-Test-Signature in file');
     expect($data->getLocation())->toBe('/path/to/file.txt');
-
-    // Assert details include scan ID
-    $details = $data->getDetails();
-    expect($details['scan_id'])->toBe('test-scan');
+    expect($data->getScanId())->toBe(123);
 });
 
 test('clamav infected scan output to dto', function () {
@@ -44,7 +42,8 @@ test('clamav infected scan output to dto', function () {
     $dtos = [];
     foreach ($results as $result) {
         $service = new ClamAVService;
-        $dtos[] = $service->resultToSecurityEventData($result, 'clamav-scan');
+        $result['scan_id'] = 123;
+        $dtos[] = $service->resultToSecurityEventData($result);
     }
 
     // We should have 3 infected files
@@ -54,11 +53,13 @@ test('clamav infected scan output to dto', function () {
     expect($dtos[0]->getType())->toBe('malware');
     expect($dtos[0]->getDescription())->toBe('Detected Win.Malware.Trojan-1 in file');
     expect($dtos[0]->getLocation())->toBe('/uploads/malicious.exe');
+    expect($dtos[0]->getScanId())->toBe(123);
 
     // Assert the second DTO
     expect($dtos[1]->getType())->toBe('malware');
     expect($dtos[1]->getDescription())->toBe('Detected PHP.Shell.Backdoor-4 in file');
     expect($dtos[1]->getLocation())->toBe('/var/www/html/uploads/backdoor.php');
+    expect($dtos[1]->getScanId())->toBe(123);
 });
 
 test('falco detected events to dto', function () {
@@ -73,7 +74,8 @@ test('falco detected events to dto', function () {
     $dtos = [];
     foreach ($results as $result) {
         $service = new FalcoService;
-        $dtos[] = $service->resultToSecurityEventData($result, 'falco-scan');
+        $result['scan_id'] = 123;
+        $dtos[] = $service->resultToSecurityEventData($result);
     }
 
     // We should have at least one event
@@ -85,6 +87,7 @@ test('falco detected events to dto', function () {
     expect($dtos[0]->getDescription())->toBe('A shell was spawned in a container with an attached terminal');
     expect($dtos[0]->getLocation())->toBe('process:bash');
     expect($dtos[0]->getUser())->toBe('root');
+    expect($dtos[0]->getScanId())->toBe(123);
 });
 
 test('falco json events to dto', function () {
@@ -100,7 +103,8 @@ test('falco json events to dto', function () {
     $dtos = [];
     foreach ($events as $event) {
         $service = new FalcoService;
-        $dtos[] = $service->resultToSecurityEventData($event, 'falco-monitor');
+        $event['scan_id'] = 123;
+        $dtos[] = $service->resultToSecurityEventData($event);
     }
 
     // We should have 3 events as per the JSON file
@@ -112,6 +116,7 @@ test('falco json events to dto', function () {
     expect($dtos[0]->getDescription())->toBe('A shell was spawned in a container with an attached terminal');
     expect($dtos[0]->getLocation())->toBe('process:bash');
     expect($dtos[0]->getUser())->toBe('root');
+    expect($dtos[0]->getScanId())->toBe(123);
 
     $details = $dtos[0]->getDetails();
     expect($details['rule'])->toBe('Terminal shell in container');
@@ -133,7 +138,8 @@ test('trivy vulnerability json to dto', function () {
     $dtos = [];
     foreach ($vulnerabilities as $vulnerability) {
         $service = new TrivyService;
-        $dtos[] = $service->resultToSecurityEventData($vulnerability, 'trivy-scan');
+        $vulnerability['scan_id'] = 123;
+        $dtos[] = $service->resultToSecurityEventData($vulnerability);
     }
 
     // Assert we have 3 vulnerabilities as per the example file
@@ -145,13 +151,13 @@ test('trivy vulnerability json to dto', function () {
     expect($firstDto->getSeverity())->toBe('critical');
     expect($firstDto->getDescription())->toBe('Symfony HttpKernel: Request forgery through unvalidated redirects');
     expect($firstDto->getLocation())->toBe('symfony/http-kernel');
+    expect($firstDto->getScanId())->toBe(123);
 
     $details = $firstDto->getDetails();
     expect($details['package'])->toBe('symfony/http-kernel');
     expect($details['version'])->toBe('5.4.8');
     expect($details['cve'])->toBe('CVE-2023-25575');
     expect($details['fixed_version'])->toBe('5.4.21');
-    expect($details['scan_id'])->toBe('trivy-scan');
 
     // Assert the third DTO - Laravel framework vulnerability
     $thirdDto = $dtos[2];
@@ -159,6 +165,7 @@ test('trivy vulnerability json to dto', function () {
     expect($thirdDto->getSeverity())->toBe('critical');
     expect($thirdDto->getDescription())->toBe('Laravel Framework: URL validation vulnerability');
     expect($thirdDto->getLocation())->toBe('laravel/framework');
+    expect($thirdDto->getScanId())->toBe(123);
 
     $details = $thirdDto->getDetails();
     expect($details['package'])->toBe('laravel/framework');

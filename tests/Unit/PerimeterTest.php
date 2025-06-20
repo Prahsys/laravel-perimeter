@@ -4,6 +4,8 @@ use Illuminate\Http\UploadedFile;
 use Prahsys\Perimeter\Facades\Perimeter;
 use Prahsys\Perimeter\ScanResult;
 
+uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+
 test('it can scan a file', function () {
     $file = UploadedFile::fake()->create('document.pdf', 100);
 

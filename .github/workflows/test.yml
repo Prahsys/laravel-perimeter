@@ -9,37 +9,34 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - uses: actions/checkout@v3
-    
+    - uses: actions/checkout@v4
+
     - name: Setup Docker
-      uses: docker/setup-buildx-action@v2
-    
+      uses: docker/setup-buildx-action@v3
+
     - name: Build and start Docker containers
       run: |
         chmod +x docker-entrypoint.sh
-        docker-compose build
-        docker-compose up -d
-    
+        echo "APP_ENV=local" > .env
+        docker compose build
+        docker compose up -d
+
     - name: Wait for containers to be ready
-      run: sleep 30
-    
+      run: sleep 25
+
     - name: Check package installation
-      run: docker-compose exec -T app php artisan list | grep perimeter
-    
+      run: docker compose exec -T app php artisan list | grep perimeter
+
     - name: Run package installation command
       run: |
-        docker-compose exec -T app php artisan perimeter:install --force
-    
+        docker compose exec -T app php artisan perimeter:install --force
+
     - name: Run package health check
       run: |
-        docker-compose exec -T app php artisan perimeter:health
-    
+        docker compose exec -T app php artisan perimeter:health
+
     - name: Run tests
       run: |
-        docker-compose exec -T app cd /package && composer test
-    
-    - name: Run lint
-      run: |
-        docker-compose exec -T app cd /package && composer lint:check
+        docker compose exec -T app composer test

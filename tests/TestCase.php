@@ -12,7 +12,7 @@ abstract class TestCase extends BaseTestCase
     {
         parent::setUp();
 
-        //        $logDir = storage_path('logs');
+        // Set up logging
         $logDir = __DIR__.'/../storage/logs/'; // Adjust path as needed
         $logPath = $logDir.'laravel.log';
         // Ensure storage/logs path exists
@@ -33,6 +33,9 @@ abstract class TestCase extends BaseTestCase
                 'level' => 'debug',
             ],
         ]);
+        
+        // Run the package migrations
+        $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
     }
 
     protected function getPackageProviders($app)
@@ -59,7 +62,7 @@ abstract class TestCase extends BaseTestCase
             'prefix' => '',
         ]);
 
-        // Disable database storage for security events in testing
-        $app['config']->set('perimeter.storage.enabled', false);
+        // Enable database storage for security events in testing
+        $app['config']->set('perimeter.storage.enabled', true);
     }
 }

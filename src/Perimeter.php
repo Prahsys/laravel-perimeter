@@ -366,6 +366,114 @@ class Perimeter
     }
 
     /**
+     * Register a callback for when a threat is detected.
+     *
+     * @param  callable  $callback
+     * @return $this
+     */
+    public function onThreatDetected(callable $callback)
+    {
+        $this->callbacks['threatDetected'][] = $callback;
+
+        return $this;
+    }
+
+    /**
+     * Get intrusion prevention service status.
+     *
+     * @return \Prahsys\Perimeter\Data\ServiceStatusData
+     */
+    public function getIntrusionPreventionStatus()
+    {
+        $service = $this->getIntrusionPreventionService();
+        if (! $service) {
+            throw new \RuntimeException('No intrusion prevention service available');
+        }
+
+        return $service->getStatus();
+    }
+
+    /**
+     * Get list of active jails from intrusion prevention service.
+     *
+     * @return array
+     */
+    public function getIntrusionPreventionJails()
+    {
+        $service = $this->getIntrusionPreventionService();
+        if (! $service) {
+            throw new \RuntimeException('No intrusion prevention service available');
+        }
+
+        return $service->getJails();
+    }
+
+    /**
+     * Get status of a specific jail.
+     *
+     * @param  string  $jail
+     * @return array
+     */
+    public function getJailStatus(string $jail)
+    {
+        $service = $this->getIntrusionPreventionService();
+        if (! $service) {
+            throw new \RuntimeException('No intrusion prevention service available');
+        }
+
+        return $service->getJailStatus($jail);
+    }
+
+    /**
+     * Get banned IPs for a specific jail.
+     *
+     * @param  string  $jail
+     * @return array
+     */
+    public function getBannedIPs(string $jail)
+    {
+        $service = $this->getIntrusionPreventionService();
+        if (! $service) {
+            throw new \RuntimeException('No intrusion prevention service available');
+        }
+
+        return $service->getBannedIPs($jail);
+    }
+
+    /**
+     * Unban an IP from a jail.
+     *
+     * @param  string  $ip
+     * @param  string  $jail
+     * @return bool
+     */
+    public function unbanIP(string $ip, string $jail)
+    {
+        $service = $this->getIntrusionPreventionService();
+        if (! $service) {
+            throw new \RuntimeException('No intrusion prevention service available');
+        }
+
+        return $service->unbanIP($ip, $jail);
+    }
+
+    /**
+     * Get recent intrusion events.
+     *
+     * @param  int  $limit
+     * @return array
+     */
+    public function getIntrusionEvents(int $limit = 10)
+    {
+        $service = $this->getIntrusionPreventionService();
+        if (! $service) {
+            throw new \RuntimeException('No intrusion prevention service available');
+        }
+
+        return $service->getRecentEvents($limit);
+    }
+
+    /**
      * Check if running in a Docker/container environment
      */
     public function isRunningInContainer(): bool
