@@ -1,7 +1,6 @@
 <?php
 
 use Prahsys\Perimeter\Contracts\SecurityMonitoringServiceInterface;
-use Prahsys\Perimeter\Data\SecurityEventData;
 use Prahsys\Perimeter\Services\FalcoService;
 
 test('falco service implements security monitoring interface', function () {
@@ -22,8 +21,8 @@ test('get monitoring options returns expected structure', function () {
 
     expect($options)->toBeArray();
     expect($options)->toHaveKeys([
-        'service', 'description', 'supports_realtime', 
-        'log_path', 'severity_filter', 'event_types'
+        'service', 'description', 'supports_realtime',
+        'log_path', 'severity_filter', 'event_types',
     ]);
 
     expect($options['service'])->toBe('falco');

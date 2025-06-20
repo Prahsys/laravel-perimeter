@@ -1,7 +1,5 @@
 <?php
 
-use Illuminate\Support\Facades\Artisan;
-
 it('can run the perimeter:health command in Docker', function () {
 
     // Run the health command and check for basic output

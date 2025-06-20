@@ -91,7 +91,7 @@ class PerimeterMonitor extends Command
         if ($duration > 0) {
             $this->info("Will run for {$duration} seconds (press Ctrl+C to stop earlier)");
         } else {
-            $this->info("Running indefinitely (press Ctrl+C to stop)");
+            $this->info('Running indefinitely (press Ctrl+C to stop)');
         }
         $this->newLine();
 
@@ -139,18 +139,18 @@ class PerimeterMonitor extends Command
                         foreach ($newEventsList as $event) {
                             $severityColor = $this->getSeverityColor($event->severity);
                             $this->line(
-                                now()->format('Y-m-d H:i:s') . 
-                                " <fg=blue>[{$name}]</> " . 
-                                "<fg={$severityColor}>{$event->severity}</> - " . 
-                                "{$event->description}" . 
-                                ($event->location ? " at {$event->location}" : "")
+                                now()->format('Y-m-d H:i:s').
+                                " <fg=blue>[{$name}]</> ".
+                                "<fg={$severityColor}>{$event->severity}</> - ".
+                                "{$event->description}".
+                                ($event->location ? " at {$event->location}" : '')
                             );
                         }
                     }
                 }
 
-                if (!$hasNewEvents) {
-                    $this->output->write("\r" . now()->format('Y-m-d H:i:s') . ' - Monitoring active, no new events');
+                if (! $hasNewEvents) {
+                    $this->output->write("\r".now()->format('Y-m-d H:i:s').' - Monitoring active, no new events');
                 }
 
                 $lastCheck = time();

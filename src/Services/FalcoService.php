@@ -24,24 +24,24 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
      * Cached instance of BackgroundProcessManager
      */
     protected ?BackgroundProcessManager $processManager = null;
-    
+
     /**
      * Get or create the process manager instance
      */
     protected function getProcessManager(): BackgroundProcessManager
     {
         if ($this->processManager === null) {
-            $this->processManager = new BackgroundProcessManager();
-            
+            $this->processManager = new BackgroundProcessManager;
+
             // Set up event handlers for real-time event processing
-            $this->processManager->on('falco', 'output', function($output) {
+            $this->processManager->on('falco', 'output', function ($output) {
                 $this->processRealTimeOutput($output);
             });
         }
-        
+
         return $this->processManager;
     }
-    
+
     /**
      * Process real-time output from Falco
      */
@@ -51,23 +51,23 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
         if (empty(trim($output))) {
             return;
         }
-        
+
         try {
             // Check if it's JSON output
             if (str_starts_with(trim($output), '{')) {
                 $data = json_decode($output, true);
-                
+
                 // If valid JSON, it's a security event
                 if (json_last_error() === JSON_ERROR_NONE && isset($data['rule'])) {
                     $eventData = FalcoOutputParser::parseJsonEvent($output);
-                    
+
                     if ($eventData) {
                         // Convert to SecurityEventData
                         $securityEvent = $this->resultToSecurityEventData($eventData);
-                        
+
                         // Emit event
                         event('perimeter.security.event', $securityEvent);
-                        
+
                         // Store for later retrieval
                         $this->storeEvent($securityEvent);
                     }
@@ -75,30 +75,30 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
             } else {
                 // Try to parse as regular text output
                 $events = FalcoOutputParser::parseTextEvents($output);
-                
+
                 foreach ($events as $eventData) {
                     // Convert to SecurityEventData
                     $securityEvent = $this->resultToSecurityEventData($eventData);
-                    
+
                     // Emit event
                     event('perimeter.security.event', $securityEvent);
-                    
+
                     // Store for later retrieval
                     $this->storeEvent($securityEvent);
                 }
             }
         } catch (\Exception $e) {
-            Log::warning('Error processing Falco output: ' . $e->getMessage(), [
-                'output' => $output
+            Log::warning('Error processing Falco output: '.$e->getMessage(), [
+                'output' => $output,
             ]);
         }
     }
-    
+
     /**
      * Recent events storage
      */
     protected array $recentEvents = [];
-    
+
     /**
      * Store a security event for later retrieval
      */
@@ -106,13 +106,13 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
     {
         // Add to the front of the array (newest first)
         array_unshift($this->recentEvents, $event);
-        
+
         // Keep only the most recent 100 events
         if (count($this->recentEvents) > 100) {
             array_pop($this->recentEvents);
         }
     }
-    
+
     /**
      * Start real-time monitoring.
      *
@@ -128,6 +128,7 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
             // Check if Falco is installed and configured
             if (! $this->isInstalled()) {
                 Log::error('Failed to start Falco monitoring: Falco is not installed');
+
                 return false;
             }
 
@@ -136,6 +137,7 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
 
             if (empty($command)) {
                 Log::error('Failed to start Falco monitoring: Falco binary not found');
+
                 return false;
             }
 
@@ -173,35 +175,36 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
             $commandArgs[] = 'json_output=true';
 
             // Always use streaming mode for real-time event processing
-            
+
             // Get the process manager
             $processManager = $this->getProcessManager();
-            
+
             // Build the full command array
             $fullCommandArray = array_merge([$command], $commandArgs);
-            
+
             // Start the process with streaming enabled
             $options = [
-                'stream_output' => true
+                'stream_output' => true,
             ];
-            
+
             // Start the process and get the PID
             $pid = $processManager->start($fullCommandArray, 'falco', $options);
-            
+
             if ($pid) {
                 Log::info('Started Falco monitoring', [
                     'pid' => $pid,
-                    'duration' => $duration
+                    'duration' => $duration,
                 ]);
-                
+
                 // If duration is set, schedule termination
                 if ($duration !== null) {
                     $processManager->scheduleTermination('falco', $duration);
                 }
-                
+
                 return true;
             } else {
                 Log::error('Failed to start Falco monitoring');
+
                 return false;
             }
         } catch (\Exception $e) {
@@ -224,21 +227,23 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
 
         try {
             // Use the BackgroundProcessManager to stop the Falco process
-            $processManager = new BackgroundProcessManager();
-            
+            $processManager = new BackgroundProcessManager;
+
             // Try to stop by the named process first
             $result = $processManager->stop('falco');
-            
+
             if ($result) {
                 Log::info('Stopped Falco monitoring process');
+
                 return true;
             }
-            
+
             // Fallback: try to find and kill the process by name using pkill
             $process = new \Symfony\Component\Process\Process(['pkill', '-f', 'falco']);
             $process->run();
-            
+
             Log::info('Attempted to stop all Falco monitoring processes');
+
             return true;
         } catch (\Exception $e) {
             Log::error('Failed to stop Falco monitoring: '.$e->getMessage(), [
@@ -251,15 +256,16 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
 
     /**
      * Schedule the termination of a monitoring process after a specified duration.
-     * 
+     *
      * @deprecated Use BackgroundProcessManager::scheduleTermination instead
+     *
      * @param  int|null  $pid  Process ID to terminate
      * @param  int  $duration  Duration in seconds before termination
      */
     protected function scheduleTermination(?int $pid, int $duration): void
     {
         // Create a BackgroundProcessManager instance and use it for scheduling termination
-        $processManager = new BackgroundProcessManager();
+        $processManager = new BackgroundProcessManager;
         $processManager->scheduleTermination($pid, $duration);
     }
 
@@ -436,11 +442,11 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
     public function getMonitoringEvents(int $limit = 10): array
     {
         // If we have in-memory events from streaming, use those first
-        if (!empty($this->recentEvents)) {
+        if (! empty($this->recentEvents)) {
             // Return the requested number of events (or all if fewer than limit)
             return array_slice($this->recentEvents, 0, $limit);
         }
-        
+
         // Fall back to reading from logs if no in-memory events
         $rawEvents = $this->getRawEvents($limit);
 

@@ -1,7 +1,5 @@
 <?php
 
-use Illuminate\Support\Facades\Artisan;
-
 it('can run the perimeter:monitor command', function () {
 
     // Check that the monitor command exists and responds to help

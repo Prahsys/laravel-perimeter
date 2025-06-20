@@ -368,7 +368,6 @@ class Perimeter
     /**
      * Register a callback for when a threat is detected.
      *
-     * @param  callable  $callback
      * @return $this
      */
     public function onThreatDetected(callable $callback)
@@ -411,7 +410,6 @@ class Perimeter
     /**
      * Get status of a specific jail.
      *
-     * @param  string  $jail
      * @return array
      */
     public function getJailStatus(string $jail)
@@ -427,7 +425,6 @@ class Perimeter
     /**
      * Get banned IPs for a specific jail.
      *
-     * @param  string  $jail
      * @return array
      */
     public function getBannedIPs(string $jail)
@@ -443,8 +440,6 @@ class Perimeter
     /**
      * Unban an IP from a jail.
      *
-     * @param  string  $ip
-     * @param  string  $jail
      * @return bool
      */
     public function unbanIP(string $ip, string $jail)
@@ -460,7 +455,6 @@ class Perimeter
     /**
      * Get recent intrusion events.
      *
-     * @param  int  $limit
      * @return array
      */
     public function getIntrusionEvents(int $limit = 10)

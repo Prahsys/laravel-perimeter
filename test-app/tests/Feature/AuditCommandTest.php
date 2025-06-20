@@ -1,7 +1,5 @@
 <?php
 
-use Illuminate\Support\Facades\Artisan;
-
 it('can run the perimeter:audit command in Docker', function () {
 
     // Run the audit command and check for basic output

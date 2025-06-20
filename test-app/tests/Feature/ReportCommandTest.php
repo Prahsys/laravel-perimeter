@@ -1,7 +1,5 @@
 <?php
 
-use Illuminate\Support\Facades\Artisan;
-
 it('can run the perimeter:report command', function () {
 
     // Check that the report command exists and responds to help

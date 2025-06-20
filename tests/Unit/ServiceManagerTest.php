@@ -55,7 +55,7 @@ test('service manager can register classes by full classname', function () {
     $services = $manager->all();
     expect($services[$className]['driver'])->toBe($className);
     expect($services['fail2ban']['driver'])->toBe($className);
-    
+
     // Config should have name set to the service name for the short name registration
     expect($services['fail2ban']['config']['name'])->toBe('fail2ban');
     // Both configs should have the enabled flag

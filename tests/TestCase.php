@@ -33,9 +33,9 @@ abstract class TestCase extends BaseTestCase
                 'level' => 'debug',
             ],
         ]);
-        
+
         // Run the package migrations
-        $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
+        $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
     }
 
     protected function getPackageProviders($app)

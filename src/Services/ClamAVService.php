@@ -353,29 +353,29 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
      * Cached instance of BackgroundProcessManager
      */
     protected ?BackgroundProcessManager $processManager = null;
-    
+
     /**
      * Recent events storage
      */
     protected array $recentEvents = [];
-    
+
     /**
      * Get or create the process manager instance
      */
     protected function getProcessManager(): BackgroundProcessManager
     {
         if ($this->processManager === null) {
-            $this->processManager = new BackgroundProcessManager();
-            
+            $this->processManager = new BackgroundProcessManager;
+
             // Set up event handlers for real-time event processing
-            $this->processManager->on('clamonacc', 'output', function($output) {
+            $this->processManager->on('clamonacc', 'output', function ($output) {
                 $this->processRealTimeOutput($output);
             });
         }
-        
+
         return $this->processManager;
     }
-    
+
     /**
      * Process real-time output from ClamAV OnAccess scanner
      */
@@ -385,7 +385,7 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
         if (empty(trim($output))) {
             return;
         }
-        
+
         try {
             // ClamAV OnAccess typically outputs when it finds threats
             // Example: "/path/to/file.exe: Eicar-Test-Signature FOUND"
@@ -395,35 +395,35 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                 if (preg_match('/^(.*?):\s+(.*?)\s+FOUND/', $output, $matches)) {
                     $filePath = $matches[1] ?? 'unknown';
                     $threatName = $matches[2] ?? 'Unknown threat';
-                    
+
                     // Create event data
                     $eventData = [
                         'file' => $filePath,
                         'threat' => $threatName,
                         'timestamp' => now()->toIso8601String(),
                         'severity' => 'critical',
-                        'description' => "Detected {$threatName} in file"
+                        'description' => "Detected {$threatName} in file",
                     ];
-                    
+
                     // Convert to SecurityEventData
                     $securityEvent = $this->resultToSecurityEventData($eventData);
-                    
+
                     // Emit event
                     event('perimeter.security.event', $securityEvent);
-                    
+
                     // Store for later retrieval
                     $this->storeEvent($securityEvent);
-                    
+
                     Log::alert("ClamAV detected malware: {$threatName} in {$filePath}");
                 }
             }
         } catch (\Exception $e) {
-            Log::warning('Error processing ClamAV output: ' . $e->getMessage(), [
-                'output' => $output
+            Log::warning('Error processing ClamAV output: '.$e->getMessage(), [
+                'output' => $output,
             ]);
         }
     }
-    
+
     /**
      * Store a security event for later retrieval
      */
@@ -431,13 +431,13 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
     {
         // Add to the front of the array (newest first)
         array_unshift($this->recentEvents, $event);
-        
+
         // Keep only the most recent 100 events
         if (count($this->recentEvents) > 100) {
             array_pop($this->recentEvents);
         }
     }
-    
+
     /**
      * Start monitoring with the service.
      *
@@ -447,6 +447,7 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
     {
         if (! $this->isEnabled() || ! $this->isInstalled()) {
             Log::warning('Cannot start ClamAV monitoring: service is not enabled or installed');
+
             return false;
         }
 
@@ -455,68 +456,72 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             $clamonaccPath = $this->getClmonaccPath();
             if (empty($clamonaccPath)) {
                 Log::error('Cannot enable real-time scanning: clamonacc not found');
+
                 return false;
             }
-            
+
             // Determine paths to monitor
             $monitorPaths = $this->config['scan_paths'] ?? [base_path()];
             $pathArgs = [];
-            
+
             foreach ($monitorPaths as $path) {
                 if (file_exists($path)) {
                     $pathArgs[] = $path;
                 }
             }
-            
+
             if (empty($pathArgs)) {
                 Log::error('No valid paths to monitor for real-time scanning');
+
                 return false;
             }
-            
+
             // Use the process manager
             $processManager = $this->getProcessManager();
-            
+
             // Build command array
             $commandArray = array_merge(
-                [$clamonaccPath, '--fdpass', '-v'], 
+                [$clamonaccPath, '--fdpass', '-v'],
                 $pathArgs
             );
-            
+
             // Always use streaming mode for real-time event processing
-            
+
             // Start the process with streaming enabled
             $options = [
-                'stream_output' => true
+                'stream_output' => true,
             ];
-            
+
             // Start the process
             $pid = $processManager->start($commandArray, 'clamonacc', $options);
-            
+
             if ($pid) {
                 // Set the monitoring flag to true
                 $this->isMonitoring = true;
-                
+
                 Log::info('Real-time ClamAV scanning enabled', [
                     'pid' => $pid,
-                    'paths' => implode(', ', $pathArgs)
+                    'paths' => implode(', ', $pathArgs),
                 ]);
-                
+
                 // If duration is specified, schedule the termination
                 if ($duration !== null) {
                     $processManager->scheduleTermination('clamonacc', $duration);
                 }
-                
+
                 return true;
             }
-            
+
             Log::error('Failed to start ClamAV monitoring');
+
             return false;
         } catch (\Exception $e) {
-            Log::error('Error starting ClamAV monitoring: ' . $e->getMessage());
+            Log::error('Error starting ClamAV monitoring: '.$e->getMessage());
+
             return false;
         }
     }
-    
+
     /**
      * Get the path to the clamonacc binary.
      */
@@ -525,11 +530,11 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
         // Check if clamonacc is in PATH
         $process = new \Symfony\Component\Process\Process(['which', 'clamonacc']);
         $process->run();
-        
+
         if ($process->isSuccessful()) {
             return trim($process->getOutput());
         }
-        
+
         // Check common locations
         $paths = [
             '/usr/bin/clamonacc',
@@ -537,13 +542,13 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             '/opt/clamav/bin/clamonacc',
             '/bin/clamonacc',
         ];
-        
+
         foreach ($paths as $path) {
             if (file_exists($path) && is_executable($path)) {
                 return $path;
             }
         }
-        
+
         return null;
     }
 
@@ -554,27 +559,29 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
     {
         try {
             // Use BackgroundProcessManager to stop the clamonacc process
-            $processManager = new BackgroundProcessManager();
-            
+            $processManager = new BackgroundProcessManager;
+
             // Try to stop by named process first
             $result = $processManager->stop('clamonacc');
-            
+
             if ($result) {
                 Log::info('Stopped ClamAV monitoring process');
                 $this->isMonitoring = false;
+
                 return true;
             }
-            
+
             // Fallback to the old method if the process manager failed
             $result = $this->disableRealtime();
-            
+
             if ($result) {
                 $this->isMonitoring = false;
             }
-            
+
             return $result;
         } catch (\Exception $e) {
-            Log::error('Error stopping ClamAV monitoring: ' . $e->getMessage());
+            Log::error('Error stopping ClamAV monitoring: '.$e->getMessage());
+
             return false;
         }
     }
@@ -583,14 +590,15 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
      * Schedule the termination of monitoring after a specified duration.
      *
      * @deprecated Use BackgroundProcessManager::scheduleTermination instead
+     *
      * @param  int  $duration  Duration in seconds before termination
      */
     protected function scheduleTermination(int $duration): void
     {
         // Create a BackgroundProcessManager instance and use it for scheduling termination
-        $processManager = new BackgroundProcessManager();
+        $processManager = new BackgroundProcessManager;
         $processManager->scheduleTermination('clamonacc', $duration);
-        
+
         Log::info("Scheduled termination of ClamAV monitoring in {$duration} seconds");
     }
 
@@ -603,11 +611,11 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
     public function getMonitoringEvents(int $limit = 10): array
     {
         // If we have in-memory events from streaming, use those first
-        if (!empty($this->recentEvents)) {
+        if (! empty($this->recentEvents)) {
             // Return the requested number of events (or all if fewer than limit)
             return array_slice($this->recentEvents, 0, $limit);
         }
-        
+
         // Fall back to reading from logs if no in-memory events
         $rawEvents = $this->getRecentMalwareEvents($limit);
 
