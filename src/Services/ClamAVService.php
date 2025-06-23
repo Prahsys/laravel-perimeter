@@ -111,6 +111,7 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                 $this->scanSinglePath($path, $excludePatterns, $results);
             } else {
                 Log::info("ClamAV: Scanning directory: $path");
+                Log::info("ClamAV: Watch scan progress with: tail -f /tmp/clamav-scan.log");
                 
                 // For directories, use the recursive scan option of ClamAV
                 if ($this->shouldUseDaemonMode()) {
@@ -127,24 +128,17 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                     $scanCommand .= ' --exclude-list='.escapeshellarg($excludeFile);
                 }
 
-                $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
-                $process->setTimeout($this->config['scan_timeout'] ?? 300); // Configurable timeout
+                // Redirect output directly to log file
+                $scanLogPath = '/tmp/clamav-scan.log';
+                $timestamp = date('Y-m-d H:i:s');
+                $logHeader = "\n[{$timestamp}] Starting ClamAV scan of: {$path}\n";
+                file_put_contents($scanLogPath, $logHeader, FILE_APPEND | LOCK_EX);
                 
-                // Stream output in real-time to show progress
-                $process->run(function ($type, $buffer) use ($path) {
-                    if ($type === \Symfony\Component\Process\Process::OUT) {
-                        // Log each line of output to show progress
-                        $lines = explode("\n", trim($buffer));
-                        foreach ($lines as $line) {
-                            if (!empty(trim($line))) {
-                                Log::info("ClamAV ($path): " . trim($line));
-                            }
-                        }
-                    } elseif ($type === \Symfony\Component\Process\Process::ERR) {
-                        // Log error output as well
-                        Log::warning("ClamAV Error ($path): " . trim($buffer));
-                    }
-                });
+                $scanCommand .= " >> {$scanLogPath} 2>&1";
+                
+                $process = new \Symfony\Component\Process\Process(['sh', '-c', $scanCommand]);
+                $process->setTimeout($this->config['scan_timeout'] ?? 300); // Configurable timeout
+                $process->run();
 
                 $output = $process->getOutput();
                 $exitCode = $process->getExitCode();
