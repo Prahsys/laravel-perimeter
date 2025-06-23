@@ -1088,11 +1088,8 @@ EOT;
                 chmod($authLogPath, 0644);
             }
 
-            // Create a sample log entry for auth log if it's empty
-            if (filesize($authLogPath) === 0) {
-                $sampleLogEntry = date('M j H:i:s').' localhost sshd[12345]: Failed password for invalid user baduser from 192.168.1.100 port 12345 ssh2';
-                file_put_contents($authLogPath, $sampleLogEntry.PHP_EOL, FILE_APPEND);
-            }
+            // Don't automatically create sample log entries
+            // Just create the empty log file for fail2ban to watch
 
             // Create symlink for the standard path if it doesn't exist
             if ($authLogPath !== '/var/log/auth.log' && ! file_exists('/var/log/auth.log')) {

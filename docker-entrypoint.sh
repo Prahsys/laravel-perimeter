@@ -13,8 +13,8 @@ mkdir -p /var/log/auth
 touch /var/log/auth/auth.log
 ln -sf /var/log/auth/auth.log /var/log/auth.log
 
-# Add sample log entry for fail2ban testing
-echo "$(date) localhost sshd[12345]: Failed password for invalid user baduser from 192.168.1.100 port 12345 ssh2" >> /var/log/auth/auth.log
+# Create auth.log but don't add any test entries
+# Test data should only be created through the proper seeding command
 
 # Setup SQLite for Laravel
 mkdir -p /var/www/laravel-app/database
@@ -38,9 +38,14 @@ if [ -d "/package" ]; then
         php /var/www/laravel-app/artisan pest:install --no-interaction
     fi
     
-    # Publish config and run migrations
+    # Publish config, migrations and run migrations
     php /var/www/laravel-app/artisan vendor:publish --tag=perimeter-config
+    php /var/www/laravel-app/artisan vendor:publish --tag=perimeter-migrations
     php /var/www/laravel-app/artisan migrate --force
+    
+    # Automatically seed test data for Docker testing environment
+    echo "Seeding test data for Docker testing environment..."
+    php /var/www/laravel-app/artisan perimeter:seed-test-data --count=20
 fi
 
 # List the package commands if installed

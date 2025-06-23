@@ -1131,10 +1131,24 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
         try {
             Log::info('Starting ClamAV services');
 
+            // Ensure required directories exist with correct permissions
+            $this->ensureDirectoriesExist();
+
             // Reload systemd
             $process = new \Symfony\Component\Process\Process(['systemctl', 'daemon-reload']);
             $process->run();
             Log::info('Reloaded systemd configuration');
+
+            // Update virus database first
+            Log::info('Updating virus database before starting services...');
+            $freshclamProcess = new \Symfony\Component\Process\Process(['freshclam', '--quiet']);
+            $freshclamProcess->setTimeout(300); // 5 minutes should be enough
+            $freshclamProcess->run();
+
+            if (! $freshclamProcess->isSuccessful()) {
+                Log::warning('Virus database update had issues: '.$freshclamProcess->getErrorOutput());
+                Log::info('Will continue with service startup anyway');
+            }
 
             // Enable and start freshclam service
             $process = new \Symfony\Component\Process\Process(['systemctl', 'enable', 'clamav-freshclam']);
@@ -1151,7 +1165,21 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                 Log::info('Started clamav-freshclam service');
             } else {
                 Log::warning('Failed to start clamav-freshclam service: '.$process->getErrorOutput());
+
+                // Try alternative service names
+                $altServiceNames = ['freshclam', 'clamav-freshclam.service', 'clamfreshclam'];
+                foreach ($altServiceNames as $serviceName) {
+                    $process = new \Symfony\Component\Process\Process(['systemctl', 'start', $serviceName]);
+                    $process->run();
+                    if ($process->isSuccessful()) {
+                        Log::info("Started freshclam using alternative name: $serviceName");
+                        break;
+                    }
+                }
             }
+
+            // Wait a moment for freshclam to initialize
+            sleep(2);
 
             // Enable and start daemon service
             $process = new \Symfony\Component\Process\Process(['systemctl', 'enable', 'clamav-daemon']);
@@ -1166,19 +1194,64 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             $process->run();
 
             if (! $process->isSuccessful()) {
-                Log::warning('Failed to start ClamAV with systemctl, will try service command');
+                Log::warning('Failed to start ClamAV with systemctl, trying alternative approaches');
 
                 // Try with service command as fallback
                 $process = new \Symfony\Component\Process\Process(['service', 'clamav-daemon', 'start']);
                 $process->run();
 
                 if (! $process->isSuccessful()) {
-                    Log::error('Failed to start ClamAV services: '.$process->getErrorOutput());
+                    // Try alternative service names that might be used on different distros
+                    $altServiceNames = ['clamd', 'clamav', 'clamd.service'];
+                    $started = false;
 
-                    return false;
+                    foreach ($altServiceNames as $serviceName) {
+                        $process = new \Symfony\Component\Process\Process(['systemctl', 'start', $serviceName]);
+                        $process->run();
+                        if ($process->isSuccessful()) {
+                            Log::info("Started ClamAV using alternative name: $serviceName");
+                            $started = true;
+                            break;
+                        }
+
+                        // Try with service command too
+                        $process = new \Symfony\Component\Process\Process(['service', $serviceName, 'start']);
+                        $process->run();
+                        if ($process->isSuccessful()) {
+                            Log::info("Started ClamAV using service command with name: $serviceName");
+                            $started = true;
+                            break;
+                        }
+                    }
+
+                    if (! $started) {
+                        Log::error('Failed to start ClamAV services after multiple attempts');
+                        Log::warning('You may need to manually start ClamAV using: sudo systemctl start clamav-daemon');
+
+                        // Print debugging information for manual troubleshooting
+                        $debugProcess = new \Symfony\Component\Process\Process(['systemctl', 'status', 'clamav-daemon', '-l']);
+                        $debugProcess->run();
+                        Log::info('ClamAV service status: '.$debugProcess->getOutput());
+
+                        return false;
+                    }
+                } else {
+                    Log::info('Started clamav-daemon using service command');
                 }
             } else {
                 Log::info('Started clamav-daemon service');
+            }
+
+            // Verify the daemon is actually running
+            sleep(1); // Give it a moment to start
+            $checkRunning = $this->isClamdRunning();
+
+            if (! $checkRunning) {
+                Log::warning('ClamAV service was started but daemon is not running');
+                Log::warning('You may need to manually start ClamAV: sudo systemctl start clamav-daemon');
+                Log::warning('Or check logs: sudo journalctl -u clamav-daemon');
+
+                return false;
             }
 
             return true;
@@ -1186,6 +1259,72 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             Log::error('Error starting ClamAV services: '.$e->getMessage());
 
             return false;
+        }
+    }
+
+    /**
+     * Check if clamd process is actually running
+     */
+    protected function isClamdRunning(): bool
+    {
+        try {
+            $process = new \Symfony\Component\Process\Process(['pgrep', 'clamd']);
+            $process->run();
+
+            if ($process->isSuccessful()) {
+                return true;
+            }
+
+            // Check for alternative process names
+            $altNames = ['clamd', 'clamav', 'clamd.service'];
+            foreach ($altNames as $name) {
+                $process = new \Symfony\Component\Process\Process(['pgrep', $name]);
+                $process->run();
+                if ($process->isSuccessful()) {
+                    return true;
+                }
+            }
+
+            // Check if socket exists as another indicator
+            $socketPath = '/var/run/clamav/clamd.sock';
+            if (file_exists($socketPath)) {
+                return true;
+            }
+
+            return false;
+        } catch (\Exception $e) {
+            Log::warning('Error checking if clamd is running: '.$e->getMessage());
+
+            return false;
+        }
+    }
+
+    /**
+     * Ensure required directories exist with proper permissions
+     */
+    protected function ensureDirectoriesExist(): void
+    {
+        $directories = [
+            '/var/run/clamav' => 0755,
+            '/var/lib/clamav' => 0755,
+            '/var/log/clamav' => 0755,
+        ];
+
+        foreach ($directories as $dir => $perms) {
+            if (! is_dir($dir)) {
+                try {
+                    mkdir($dir, $perms, true);
+                    chmod($dir, $perms);
+                    Log::info("Created directory: $dir");
+
+                    // Try to set ownership if we're running as root
+                    if (posix_getuid() === 0) {
+                        shell_exec("chown clamav:clamav $dir");
+                    }
+                } catch (\Exception $e) {
+                    Log::warning("Could not create directory $dir: ".$e->getMessage());
+                }
+            }
         }
     }
 

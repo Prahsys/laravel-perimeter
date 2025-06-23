@@ -85,6 +85,37 @@ test-app/
 
 All files are intelligently copied to the corresponding location in the Docker Laravel application, preserving the directory structure.
 
+## Test Data Seeding
+
+The package includes a dedicated command for seeding test data, which is useful for manual testing and development:
+
+```bash
+docker-compose exec app php artisan perimeter:seed-test-data --force
+```
+
+This command:
+
+1. Creates a variety of security events in the database with realistic data
+2. Includes different event types (malware, vulnerability, intrusion, etc.)
+3. Uses varied timestamps, severities, and descriptions
+
+### Sample Files for Testing
+
+Test data files are located in the `resources/testdata/` directory:
+
+- **auth.log** - Sample log entries for Fail2ban testing
+- **eicar.txt** - EICAR test file for ClamAV testing (safe anti-virus test file)
+
+When running the seed command with `--force`, these files are copied to the appropriate locations in the container for testing.
+
+### When to Use Test Data
+
+Use the test data seeding when:
+
+1. Developing new features that interact with security events
+2. Testing the reporting or audit commands with realistic data
+3. Debugging issues with event processing or display
+
 ## Debugging Test Issues
 
 If you encounter issues running the tests:

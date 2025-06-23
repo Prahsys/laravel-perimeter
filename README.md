@@ -184,9 +184,6 @@ protected function schedule(Schedule $schedule)
     // Weekly vulnerability scan with specific focus
     $schedule->command('perimeter:report --type=vulnerability')->weekly();
     
-    // Hourly behavioral monitoring checks
-    $schedule->command('perimeter:monitor')->hourly();
-    
     // Weekly security health verification
     $schedule->command('perimeter:health')->weekly();
 }
@@ -665,7 +662,34 @@ tail -f /var/log/falco/daemon.log
 - **Container Limitations**: Some features may be limited in containerized environments without privileged access.
 - **Database Issues**: Ensure migrations have run properly: `php artisan migrate:status`
 
-### 4. Sample Outputs
+### 4. ClamAV Not Starting
+
+If you see "ClamAV is installed and configured but daemon is not running" in the health check:
+
+```bash
+# Check if freshclam has completed initializing the database
+sudo systemctl status clamav-freshclam
+
+# Check ClamAV logs for specific errors
+sudo cat /var/log/clamav/freshclam.log
+sudo cat /var/log/clamav/clamd.log
+
+# Make sure required directories exist with proper permissions
+sudo mkdir -p /var/run/clamav /var/lib/clamav
+sudo chown clamav:clamav /var/run/clamav /var/lib/clamav
+sudo chmod 750 /var/run/clamav /var/lib/clamav
+
+# Manually start ClamAV services
+sudo systemctl restart clamav-freshclam
+sudo systemctl restart clamav-daemon
+
+# Check socket file
+ls -la /var/run/clamav/clamd.sock
+```
+
+See [DEBUGGING.md](./DEBUGGING.md) for more detailed ClamAV troubleshooting steps.
+
+### 5. Sample Outputs
 
 The package includes reference outputs for all security tools in the `resources/examples/` directory. These examples show what properly functioning services should produce and can help with troubleshooting.
 

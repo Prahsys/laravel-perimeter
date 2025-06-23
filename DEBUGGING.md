@@ -70,6 +70,58 @@ docker-compose exec app journalctl -u fail2ban -b
 docker-compose exec app fail2ban-client -t
 ```
 
+### ClamAV Specific Troubleshooting
+
+ClamAV has some special considerations that can cause the daemon to not start properly:
+
+1. **Database Initialization**:
+   ```bash
+   # Check if freshclam is running and has completed
+   systemctl status clamav-freshclam
+   cat /var/log/clamav/freshclam.log
+   
+   # Manually update the virus database
+   freshclam
+   ```
+
+2. **Permission Issues**:
+   ```bash
+   # Check permissions on key directories
+   ls -la /var/run/clamav
+   ls -la /var/lib/clamav
+   
+   # Fix permissions if needed
+   mkdir -p /var/run/clamav
+   chown clamav:clamav /var/run/clamav
+   chmod 750 /var/run/clamav
+   ```
+
+3. **Socket Issues**:
+   ```bash
+   # Check if the socket file exists
+   ls -la /var/run/clamav/clamd.sock
+   
+   # Check clamd configuration for socket path
+   grep LocalSocket /etc/clamav/clamd.conf
+   ```
+
+4. **Service Dependencies**:
+   ```bash
+   # ClamAV daemon depends on freshclam completing first
+   systemctl restart clamav-freshclam
+   systemctl restart clamav-daemon
+   ```
+
+5. **Manual Start**:
+   ```bash
+   # Start clamd manually to see any startup errors
+   clamd --foreground
+   
+   # Alternative service names on different distros
+   systemctl start clamd
+   service clamav-daemon start
+   ```
+
 ### 4. Restarting Services
 
 To restart a service:
