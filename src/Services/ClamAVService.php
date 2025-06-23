@@ -43,10 +43,16 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                 return ScanResult::clean($filePath);
             }
 
-            // Use ClamAV to scan the file
-            $scanCommand = 'clamdscan --fdpass '.escapeshellarg($filePath);
+            // Choose scan method based on available memory and daemon status
+            if ($this->shouldUseDaemonMode()) {
+                $scanCommand = 'clamdscan --fdpass '.escapeshellarg($filePath);
+            } else {
+                // Use direct scanning for low-memory environments
+                $scanCommand = 'clamscan --no-summary '.escapeshellarg($filePath);
+            }
+            
             $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
-            $process->setTimeout(60); // 60 seconds timeout
+            $process->setTimeout($this->config['scan_timeout'] ?? 60);
             $process->run();
 
             $output = $process->getOutput();
@@ -101,10 +107,18 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
 
             // If the path is a file, scan it directly
             if (is_file($path)) {
+                Log::info("ClamAV: Scanning file: $path");
                 $this->scanSinglePath($path, $excludePatterns, $results);
             } else {
+                Log::info("ClamAV: Scanning directory: $path");
+                
                 // For directories, use the recursive scan option of ClamAV
-                $scanCommand = 'clamdscan -r '.escapeshellarg($path);
+                if ($this->shouldUseDaemonMode()) {
+                    $scanCommand = 'clamdscan -r '.escapeshellarg($path);
+                } else {
+                    // Use direct scanning for low-memory environments
+                    $scanCommand = 'clamscan -r --no-summary '.escapeshellarg($path);
+                }
 
                 if (! empty($excludePatterns)) {
                     // Create a temporary exclude file for clamdscan
@@ -114,11 +128,20 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                 }
 
                 $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
-                $process->setTimeout(300); // 5 minutes timeout for large directories
+                $process->setTimeout($this->config['scan_timeout'] ?? 300); // Configurable timeout
                 $process->run();
 
                 $output = $process->getOutput();
                 $exitCode = $process->getExitCode();
+
+                // Log completion status
+                if ($exitCode === 0) {
+                    Log::info("ClamAV: Scan completed - no threats found in $path");
+                } elseif ($exitCode === 1) {
+                    Log::warning("ClamAV: Scan completed - threats found in $path");
+                } else {
+                    Log::warning("ClamAV: Scan completed with errors for $path");
+                }
 
                 // If viruses were found, parse the output to get details
                 if ($exitCode === 1) {
@@ -299,6 +322,8 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             $message = 'ClamAV is not installed on the system.';
         } elseif (! $configured) {
             $message = 'ClamAV is installed but not properly configured.';
+        } elseif (! $running && !$this->hasSufficientMemoryForDaemon()) {
+            $message = 'ClamAV is installed and configured. Using direct scanning (daemon requires more memory).';
         } elseif (! $running) {
             $message = 'ClamAV is installed and configured but daemon is not running.';
         } else {
@@ -1302,6 +1327,91 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             Log::warning('Error checking if clamd is running: '.$e->getMessage());
 
             return false;
+        }
+    }
+
+    /**
+     * Check if we should use daemon mode or direct scanning.
+     */
+    protected function shouldUseDaemonMode(): bool
+    {
+        // If daemon is explicitly disabled in config, use direct scanning
+        if (isset($this->config['force_direct_scan']) && $this->config['force_direct_scan']) {
+            Log::info('ClamAV: Using direct scanning (forced by configuration)');
+            return false;
+        }
+
+        // Check if we have sufficient memory for daemon mode
+        if (!$this->hasSufficientMemoryForDaemon()) {
+            Log::info('ClamAV: Using direct scanning (insufficient memory for daemon)');
+            return false;
+        }
+
+        // Check if daemon is actually running
+        if (!$this->isClamdRunning()) {
+            Log::info('ClamAV: Using direct scanning (daemon not running)');
+            return false;
+        }
+
+        Log::info('ClamAV: Using daemon scanning (optimal performance)');
+        return true;
+    }
+
+    /**
+     * Check if system has sufficient memory for ClamAV daemon.
+     */
+    protected function hasSufficientMemoryForDaemon(): bool
+    {
+        $availableMemoryMB = $this->getAvailableMemoryMB();
+        $requiredMemoryMB = $this->config['min_memory_for_daemon'] ?? 1536; // 1.5GB default
+        
+        if ($availableMemoryMB === null) {
+            // Cannot determine memory, assume we have enough
+            Log::debug('ClamAV: Cannot determine available memory, assuming daemon mode is OK');
+            return true;
+        }
+        
+        Log::debug("ClamAV: Available memory: {$availableMemoryMB}MB, Required: {$requiredMemoryMB}MB");
+        return $availableMemoryMB >= $requiredMemoryMB;
+    }
+
+    /**
+     * Get available system memory in MB.
+     */
+    protected function getAvailableMemoryMB(): ?int
+    {
+        try {
+            // Try to get memory info from /proc/meminfo (Linux)
+            if (file_exists('/proc/meminfo')) {
+                $meminfo = file_get_contents('/proc/meminfo');
+                
+                // Get MemAvailable (preferred) or calculate from MemFree + Buffers + Cached
+                if (preg_match('/MemAvailable:\s+(\d+)\s+kB/', $meminfo, $matches)) {
+                    return (int)($matches[1] / 1024); // Convert KB to MB
+                }
+                
+                // Fallback calculation
+                $memFree = 0;
+                $buffers = 0;
+                $cached = 0;
+                
+                if (preg_match('/MemFree:\s+(\d+)\s+kB/', $meminfo, $matches)) {
+                    $memFree = (int)$matches[1];
+                }
+                if (preg_match('/Buffers:\s+(\d+)\s+kB/', $meminfo, $matches)) {
+                    $buffers = (int)$matches[1];
+                }
+                if (preg_match('/Cached:\s+(\d+)\s+kB/', $meminfo, $matches)) {
+                    $cached = (int)$matches[1];
+                }
+                
+                return (int)(($memFree + $buffers + $cached) / 1024); // Convert KB to MB
+            }
+            
+            return null;
+        } catch (\Exception $e) {
+            Log::warning('Error determining available memory: ' . $e->getMessage());
+            return null;
         }
     }
 

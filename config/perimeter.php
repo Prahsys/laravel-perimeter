@@ -53,6 +53,10 @@ return [
                 '*/node_modules/*',
                 '*/storage/logs/*',
             ],
+            'scan_timeout' => env('PERIMETER_CLAMAV_SCAN_TIMEOUT', 1800), // 30 minutes for direct scanning
+            'health_check_timeout' => env('PERIMETER_CLAMAV_HEALTH_TIMEOUT', 300), // 5 minutes
+            'min_memory_for_daemon' => env('PERIMETER_CLAMAV_MIN_MEMORY', 1536), // 1.5GB minimum for daemon mode
+            'force_direct_scan' => env('PERIMETER_CLAMAV_FORCE_DIRECT', false), // Force direct scanning
         ],
 
         \Prahsys\Perimeter\Services\FalcoService::class => [
