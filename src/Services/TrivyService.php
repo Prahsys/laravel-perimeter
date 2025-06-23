@@ -57,7 +57,7 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
                 );
 
                 $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
-                $process->setTimeout(300); // 5 minutes timeout for large directories
+                $process->setTimeout($this->config['scan_timeout'] ?? 900); // Configurable timeout for large directories
                 $process->run();
 
                 if ($process->isSuccessful()) {
@@ -116,7 +116,7 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
             }
 
             $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
-            $process->setTimeout(300); // 5 minutes timeout for large scans
+            $process->setTimeout($this->config['scan_timeout'] ?? 900); // Default 15 minutes for production
             $process->run();
 
             if ($process->isSuccessful()) {
