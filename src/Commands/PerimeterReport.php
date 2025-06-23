@@ -149,17 +149,9 @@ class PerimeterReport extends Command
                     $configKey = strtolower(preg_replace('/Service$/', '', $serviceName));
 
                     if ($scanner->isEnabled() && $scanner->isInstalled()) {
-                        // Try to get version information
-                        $versionCmd = $this->getVersionCommand($configKey);
-                        $version = 'Version information not available';
-
-                        if ($versionCmd) {
-                            $process = new \Symfony\Component\Process\Process($versionCmd);
-                            $process->run();
-                            if ($process->isSuccessful()) {
-                                $version = trim($process->getOutput()) ?: $version;
-                            }
-                        }
+                        // Get version from service status instead of running commands
+                        $status = $scanner->getStatus();
+                        $version = $status->details['version'] ?? 'Version information not available';
 
                         $this->line(" - <fg=white>{$serviceName}</>: <fg=green>Enabled and Installed</>");
                         $this->line("   • Version: {$version}");
@@ -187,17 +179,9 @@ class PerimeterReport extends Command
                     $configKey = strtolower(preg_replace('/Service$/', '', $serviceName));
 
                     if ($monitor->isEnabled() && $monitor->isInstalled()) {
-                        // Try to get version information
-                        $versionCmd = $this->getVersionCommand($configKey);
-                        $version = 'Version information not available';
-
-                        if ($versionCmd) {
-                            $process = new \Symfony\Component\Process\Process($versionCmd);
-                            $process->run();
-                            if ($process->isSuccessful()) {
-                                $version = trim($process->getOutput()) ?: $version;
-                            }
-                        }
+                        // Get version from service status instead of running commands
+                        $status = $monitor->getStatus();
+                        $version = $status->details['version'] ?? 'Version information not available';
 
                         $this->line(" - <fg=white>{$serviceName}</>: <fg=green>Enabled and Installed</>");
                         $this->line("   • Version: {$version}");
@@ -225,17 +209,9 @@ class PerimeterReport extends Command
                     $configKey = strtolower(preg_replace('/Service$/', '', $serviceName));
 
                     if ($scanner->isEnabled() && $scanner->isInstalled()) {
-                        // Try to get version information
-                        $versionCmd = $this->getVersionCommand($configKey);
-                        $version = 'Version information not available';
-
-                        if ($versionCmd) {
-                            $process = new \Symfony\Component\Process\Process($versionCmd);
-                            $process->run();
-                            if ($process->isSuccessful()) {
-                                $version = trim($process->getOutput()) ?: $version;
-                            }
-                        }
+                        // Get version from service status instead of running commands
+                        $status = $scanner->getStatus();
+                        $version = $status->details['version'] ?? 'Version information not available';
 
                         $this->line(" - <fg=white>{$serviceName}</>: <fg=green>Enabled and Installed</>");
                         $this->line("   • Version: {$version}");
