@@ -1,0 +1,26 @@
+Jun 15 08:32:45 web-server sshd[12345]: Failed password for invalid user admin from 192.168.1.10 port 44521 ssh2
+Jun 15 08:32:52 web-server sshd[12346]: Failed password for invalid user admin from 192.168.1.10 port 44522 ssh2
+Jun 15 08:33:03 web-server sshd[12347]: Failed password for invalid user admin from 192.168.1.10 port 44523 ssh2
+Jun 15 08:33:15 web-server sshd[12348]: Failed password for invalid user admin from 192.168.1.10 port 44524 ssh2
+Jun 15 08:33:22 web-server sshd[12349]: Failed password for invalid user admin from 192.168.1.10 port 44525 ssh2
+Jun 15 08:33:30 web-server sshd[12350]: Failed password for invalid user admin from 192.168.1.10 port 44526 ssh2
+Jun 15 08:33:32 web-server sshd[12351]: [ID 800047] Failed password for invalid user root from 10.10.14.22 port 56789 ssh2
+Jun 15 08:33:45 web-server sshd[12352]: [ID 800047] Failed password for invalid user root from 10.10.14.22 port 56790 ssh2
+Jun 15 08:33:58 web-server sshd[12353]: [ID 800047] Failed password for invalid user root from 10.10.14.22 port 56791 ssh2
+Jun 15 08:34:10 web-server sshd[12354]: [ID 800047] Failed password for invalid user root from 10.10.14.22 port 56792 ssh2
+Jun 15 08:34:11 web-server sshd[12355]: Connection closed by invalid user postgres 172.16.10.50 port 38554 [preauth]
+Jun 15 08:34:20 web-server sshd[12356]: Connection closed by invalid user postgres 172.16.10.50 port 38555 [preauth]
+Jun 15 08:34:32 web-server sshd[12357]: Invalid user mysql from 172.16.10.50 port 38556
+Jun 15 08:34:45 web-server sshd[12358]: Invalid user mysql from 172.16.10.50 port 38557
+Jun 15 08:35:01 web-server sshd[12359]: Accepted publickey for ubuntu from 10.0.1.5 port 45678 ssh2: RSA SHA256:abcdefg12345
+Jun 15 09:15:22 web-server sshd[12360]: Failed password for invalid user test from 203.0.113.10 port 54321 ssh2
+Jun 15 09:15:35 web-server sshd[12361]: Failed password for invalid user test from 203.0.113.10 port 54322 ssh2
+Jun 15 09:15:48 web-server sshd[12362]: Failed password for invalid user test from 203.0.113.10 port 54323 ssh2
+Jun 15 09:16:02 web-server sshd[12363]: Failed password for invalid user test from 203.0.113.10 port 54324 ssh2
+Jun 15 09:16:15 web-server sshd[12364]: Failed password for invalid user test from 203.0.113.10 port 54325 ssh2
+Jun 15 09:17:01 web-server sshd[12365]: Received disconnect from 203.0.113.10 port 54325:11: Bye Bye [preauth]
+Jun 15 09:30:45 web-server fail2ban-server[901]: WARNING [sshd] Ban 203.0.113.10
+Jun 15 09:31:15 web-server fail2ban-server[901]: WARNING [sshd] Ban 192.168.1.10
+Jun 15 09:32:30 web-server fail2ban-server[901]: WARNING [sshd] Ban 172.16.10.50
+Jun 15 10:30:45 web-server fail2ban-server[901]: WARNING [sshd] Unban 203.0.113.10
+Jun 15 10:31:15 web-server fail2ban-server[901]: WARNING [sshd] Unban 192.168.1.10
