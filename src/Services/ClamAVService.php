@@ -1304,6 +1304,9 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
      */
     protected function ensureDirectoriesExist(): void
     {
+        // First ensure the clamav user exists
+        $this->ensureClamavUserExists();
+
         $directories = [
             '/var/run/clamav' => 0755,
             '/var/lib/clamav' => 0755,
@@ -1316,16 +1319,115 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                     mkdir($dir, $perms, true);
                     chmod($dir, $perms);
                     Log::info("Created directory: $dir");
-
-                    // Try to set ownership if we're running as root
-                    if (posix_getuid() === 0) {
-                        shell_exec("chown clamav:clamav $dir");
-                    }
                 } catch (\Exception $e) {
                     Log::warning("Could not create directory $dir: ".$e->getMessage());
                 }
             }
+
+            // Ensure proper ownership regardless of whether directory existed
+            if ($this->isRunningAsRoot()) {
+                try {
+                    // First check if clamav user exists before setting ownership
+                    $userCheckProcess = new \Symfony\Component\Process\Process(['id', 'clamav']);
+                    $userCheckProcess->run();
+
+                    if ($userCheckProcess->isSuccessful()) {
+                        // Set ownership to clamav user
+                        $process = new \Symfony\Component\Process\Process(['chown', '-R', 'clamav:clamav', $dir]);
+                        $process->run();
+
+                        if ($process->isSuccessful()) {
+                            Log::info("Set ownership for $dir to clamav:clamav");
+                        } else {
+                            Log::warning("Failed to set ownership for $dir: ".$process->getErrorOutput());
+                        }
+                    } else {
+                        Log::warning("ClamAV user does not exist, using default ownership for $dir");
+                    }
+
+                    // Ensure permissions are correct
+                    chmod($dir, $perms);
+                } catch (\Exception $e) {
+                    Log::warning("Could not set ownership for $dir: ".$e->getMessage());
+                }
+            } else {
+                Log::info("Not running as root, skipping ownership changes for $dir");
+            }
         }
+    }
+
+    /**
+     * Ensure the clamav system user exists
+     */
+    protected function ensureClamavUserExists(): void
+    {
+        if (! $this->isRunningAsRoot()) {
+            Log::info('Not running as root, skipping clamav user creation');
+
+            return;
+        }
+
+        try {
+            // Check if clamav user already exists
+            $userCheckProcess = new \Symfony\Component\Process\Process(['id', 'clamav']);
+            $userCheckProcess->run();
+
+            if ($userCheckProcess->isSuccessful()) {
+                Log::info('ClamAV user already exists');
+
+                return;
+            }
+
+            // Create clamav user if it doesn't exist
+            Log::info('Creating clamav system user');
+            $createUserProcess = new \Symfony\Component\Process\Process([
+                'useradd',
+                '--system',
+                '--shell', '/bin/false',
+                '--home-dir', '/var/lib/clamav',
+                '--create-home',
+                '--comment', 'ClamAV antivirus',
+                'clamav',
+            ]);
+            $createUserProcess->run();
+
+            if ($createUserProcess->isSuccessful()) {
+                Log::info('Successfully created clamav system user');
+            } else {
+                Log::warning('Failed to create clamav user: '.$createUserProcess->getErrorOutput());
+            }
+
+        } catch (\Exception $e) {
+            Log::warning('Error ensuring clamav user exists: '.$e->getMessage());
+        }
+    }
+
+    /**
+     * Check if the command is running as root or with sudo.
+     */
+    protected function isRunningAsRoot(): bool
+    {
+        // On Unix/Linux systems
+        if (function_exists('posix_getuid')) {
+            return posix_getuid() === 0;
+        }
+
+        // Try to write to a system location to test permissions
+        try {
+            // If we can write to /tmp/sudo_test, we likely have root
+            $testFile = '/tmp/sudo_test_'.time();
+            $result = @file_put_contents($testFile, 'test');
+
+            if ($result !== false) {
+                @unlink($testFile);
+
+                return true;
+            }
+        } catch (\Exception $e) {
+            Log::warning('Failed to test for root permissions: '.$e->getMessage());
+        }
+
+        return false;
     }
 
     /**
