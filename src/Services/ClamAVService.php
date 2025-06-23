@@ -129,7 +129,22 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
 
                 $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
                 $process->setTimeout($this->config['scan_timeout'] ?? 300); // Configurable timeout
-                $process->run();
+                
+                // Stream output in real-time to show progress
+                $process->run(function ($type, $buffer) use ($path) {
+                    if ($type === \Symfony\Component\Process\Process::OUT) {
+                        // Log each line of output to show progress
+                        $lines = explode("\n", trim($buffer));
+                        foreach ($lines as $line) {
+                            if (!empty(trim($line))) {
+                                Log::info("ClamAV ($path): " . trim($line));
+                            }
+                        }
+                    } elseif ($type === \Symfony\Component\Process\Process::ERR) {
+                        // Log error output as well
+                        Log::warning("ClamAV Error ($path): " . trim($buffer));
+                    }
+                });
 
                 $output = $process->getOutput();
                 $exitCode = $process->getExitCode();
