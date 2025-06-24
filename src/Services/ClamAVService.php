@@ -50,7 +50,7 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                 // Use direct scanning for low-memory environments
                 $scanCommand = 'clamscan --no-summary '.escapeshellarg($filePath);
             }
-            
+
             $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
             $process->setTimeout($this->config['scan_timeout'] ?? 60);
             $process->run();
@@ -111,8 +111,8 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                 $this->scanSinglePath($path, $excludePatterns, $results);
             } else {
                 Log::info("ClamAV: Scanning directory: $path");
-                Log::info("ClamAV: Watch scan progress with: tail -f /tmp/clamav-scan.log");
-                
+                Log::info('ClamAV: Watch scan progress with: tail -f /tmp/clamav-scan.log');
+
                 // For directories, use the recursive scan option of ClamAV
                 if ($this->shouldUseDaemonMode()) {
                     $scanCommand = 'clamdscan -r '.escapeshellarg($path);
@@ -133,9 +133,9 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                 $timestamp = date('Y-m-d H:i:s');
                 $logHeader = "\n[{$timestamp}] Starting ClamAV scan of: {$path}\n";
                 file_put_contents($scanLogPath, $logHeader, FILE_APPEND | LOCK_EX);
-                
+
                 $scanCommand .= " >> {$scanLogPath} 2>&1";
-                
+
                 $process = new \Symfony\Component\Process\Process(['sh', '-c', $scanCommand]);
                 $process->setTimeout($this->config['scan_timeout'] ?? 300); // Configurable timeout
                 $process->run();
@@ -331,7 +331,7 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             $message = 'ClamAV is not installed on the system.';
         } elseif (! $configured) {
             $message = 'ClamAV is installed but not properly configured.';
-        } elseif (! $running && !$this->hasSufficientMemoryForDaemon()) {
+        } elseif (! $running && ! $this->hasSufficientMemoryForDaemon()) {
             $message = 'ClamAV is installed and configured. Using direct scanning (daemon requires more memory).';
         } elseif (! $running) {
             $message = 'ClamAV is installed and configured but daemon is not running.';
@@ -1347,22 +1347,26 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
         // If daemon is explicitly disabled in config, use direct scanning
         if (isset($this->config['force_direct_scan']) && $this->config['force_direct_scan']) {
             Log::info('ClamAV: Using direct scanning (forced by configuration)');
+
             return false;
         }
 
         // Check if we have sufficient memory for daemon mode
-        if (!$this->hasSufficientMemoryForDaemon()) {
+        if (! $this->hasSufficientMemoryForDaemon()) {
             Log::info('ClamAV: Using direct scanning (insufficient memory for daemon)');
+
             return false;
         }
 
         // Check if daemon is actually running
-        if (!$this->isClamdRunning()) {
+        if (! $this->isClamdRunning()) {
             Log::info('ClamAV: Using direct scanning (daemon not running)');
+
             return false;
         }
 
         Log::info('ClamAV: Using daemon scanning (optimal performance)');
+
         return true;
     }
 
@@ -1373,14 +1377,16 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
     {
         $availableMemoryMB = $this->getAvailableMemoryMB();
         $requiredMemoryMB = $this->config['min_memory_for_daemon'] ?? 1536; // 1.5GB default
-        
+
         if ($availableMemoryMB === null) {
             // Cannot determine memory, assume we have enough
             Log::debug('ClamAV: Cannot determine available memory, assuming daemon mode is OK');
+
             return true;
         }
-        
+
         Log::debug("ClamAV: Available memory: {$availableMemoryMB}MB, Required: {$requiredMemoryMB}MB");
+
         return $availableMemoryMB >= $requiredMemoryMB;
     }
 
@@ -1393,33 +1399,34 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             // Try to get memory info from /proc/meminfo (Linux)
             if (file_exists('/proc/meminfo')) {
                 $meminfo = file_get_contents('/proc/meminfo');
-                
+
                 // Get MemAvailable (preferred) or calculate from MemFree + Buffers + Cached
                 if (preg_match('/MemAvailable:\s+(\d+)\s+kB/', $meminfo, $matches)) {
-                    return (int)($matches[1] / 1024); // Convert KB to MB
+                    return (int) ($matches[1] / 1024); // Convert KB to MB
                 }
-                
+
                 // Fallback calculation
                 $memFree = 0;
                 $buffers = 0;
                 $cached = 0;
-                
+
                 if (preg_match('/MemFree:\s+(\d+)\s+kB/', $meminfo, $matches)) {
-                    $memFree = (int)$matches[1];
+                    $memFree = (int) $matches[1];
                 }
                 if (preg_match('/Buffers:\s+(\d+)\s+kB/', $meminfo, $matches)) {
-                    $buffers = (int)$matches[1];
+                    $buffers = (int) $matches[1];
                 }
                 if (preg_match('/Cached:\s+(\d+)\s+kB/', $meminfo, $matches)) {
-                    $cached = (int)$matches[1];
+                    $cached = (int) $matches[1];
                 }
-                
-                return (int)(($memFree + $buffers + $cached) / 1024); // Convert KB to MB
+
+                return (int) (($memFree + $buffers + $cached) / 1024); // Convert KB to MB
             }
-            
+
             return null;
         } catch (\Exception $e) {
-            Log::warning('Error determining available memory: ' . $e->getMessage());
+            Log::warning('Error determining available memory: '.$e->getMessage());
+
             return null;
         }
     }
