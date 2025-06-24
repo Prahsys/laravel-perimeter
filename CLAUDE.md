@@ -24,7 +24,13 @@ We've been working on improving the Laravel Perimeter security package, focusing
    - **Configurable Timeouts**: Added configurable timeouts for ClamAV and Trivy scans
    - **Production-Friendly Defaults**: Extended timeouts for large codebases in production (1800s/30min)
 
-4. **Code Quality** ✅ MAINTAINED
+4. **Health Check Improvements** ✅ RESOLVED
+   - **Service-Aware Health Logic**: Optional services no longer show as "Unhealthy" when properly configured
+   - **ClamAV Direct Mode**: Reports as healthy when using direct scanning (daemon not required in low-memory environments)
+   - **Optional Service Support**: UFW and Fail2ban can be healthy even when not actively running
+   - **Production-Ready**: Eliminates false "Unhealthy" alerts that could trigger monitoring systems
+
+5. **Code Quality** ✅ MAINTAINED
    - All package tests passing (55 tests, 274 assertions)
    - All Docker integration tests passing (7 tests, 12 assertions)  
    - All linting checks passing (109 files)
@@ -66,6 +72,13 @@ We've been working on improving the Laravel Perimeter security package, focusing
 ### Parser Cleanup (`src/Parsers/Fail2banOutputParser.php`)
 - Removed TEST_ENTRY filtering (lines 147-150)
 - Now processes all log entries without artificial filtering
+
+### Health Check Improvements (`src/Data/ServiceStatusData.php`)
+- **NEW FEATURE**: Added `functional` parameter to distinguish daemon status from operational capability
+- **Service-Aware Logic**: ClamAV reports healthy when using direct scanning mode even if daemon isn't running
+- **Optional Service Support**: UFW and Fail2ban can be healthy when properly configured but not actively running
+- **Production-Ready**: Eliminates false "Unhealthy" alerts that could trigger monitoring systems
+- **Backward Compatible**: Default behavior unchanged for services that don't use functional status
 
 ## Configuration Options
 
@@ -199,8 +212,11 @@ When resuming work after context compression, ask these questions to get back up
 
 ## Important Files Changed
 
-- `src/Services/ClamAVService.php` - Enhanced permission handling and configurable timeouts
+- `src/Services/ClamAVService.php` - Enhanced permission handling, configurable timeouts, and functional health status
 - `src/Services/TrivyService.php` - Added configurable scan timeouts and service audit implementation
+- `src/Services/UfwService.php` - Added functional health status for optional firewall service
+- `src/Services/Fail2banService.php` - Added functional health status for optional intrusion prevention
+- `src/Data/ServiceStatusData.php` - Added functional parameter for service-aware health checks
 - `src/Commands/PerimeterReport.php` - Fixed timeout issues with database-only approach
 - `src/Commands/PerimeterAudit.php` - Eliminated duplicate scanning and added proper progress indicators
 - `src/Commands/PerimeterSeedTestData.php` - Removed --force option, automatic file copying

@@ -52,7 +52,7 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             }
 
             $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
-            $process->setTimeout($this->config['scan_timeout'] ?? 60);
+            $process->setTimeout($this->config['scan_timeout'] ?? 1800); // Default 30 minutes for large files
             $process->run();
 
             $output = $process->getOutput();
@@ -137,7 +137,7 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                 $scanCommand .= " >> {$scanLogPath} 2>&1";
 
                 $process = new \Symfony\Component\Process\Process(['sh', '-c', $scanCommand]);
-                $process->setTimeout($this->config['scan_timeout'] ?? 300); // Configurable timeout
+                $process->setTimeout($this->config['scan_timeout'] ?? 1800); // Default 30 minutes for large scans
                 $process->run();
 
                 $output = $process->getOutput();
@@ -292,7 +292,7 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                 // Only check daemon binary if we have sufficient memory for daemon mode
                 if (! $running && $this->hasSufficientMemoryForDaemon()) {
                     $scanProcess = new \Symfony\Component\Process\Process(['clamdscan', '--version']);
-                    $scanProcess->setTimeout($this->config['health_check_timeout'] ?? 300); // Configurable timeout
+                    $scanProcess->setTimeout($this->config['health_check_timeout'] ?? 300); // Configurable timeout for health checks
                     try {
                         $scanProcess->run();
                         // If clamdscan returns successfully, consider the daemon running in container
