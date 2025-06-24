@@ -579,12 +579,12 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
      */
     protected function performServiceSpecificAuditChecks($output = null): array
     {
-        if (!$this->isEnabled() || !$this->isInstalled() || !$this->isConfigured()) {
+        if (! $this->isEnabled() || ! $this->isInstalled() || ! $this->isConfigured()) {
             return [];
         }
 
         if ($output) {
-            $output->writeln("  <fg=yellow>🔍 Scanning dependencies and system packages for vulnerabilities...</>");
+            $output->writeln('  <fg=yellow>🔍 Scanning dependencies and system packages for vulnerabilities...</>');
         }
 
         // Perform the actual vulnerability scan
@@ -601,14 +601,14 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
 
         if ($output) {
             if (empty($securityEvents)) {
-                $output->writeln("  <fg=green>✅ No vulnerabilities detected</>");
+                $output->writeln('  <fg=green>✅ No vulnerabilities detected</>');
             } else {
                 $severityCounts = array_count_values(array_column($scanResults, 'severity'));
                 $criticalHigh = ($severityCounts['CRITICAL'] ?? 0) + ($severityCounts['HIGH'] ?? 0);
                 if ($criticalHigh > 0) {
-                    $output->writeln("  <fg=red>⚠️  " . count($securityEvents) . " vulnerabilities detected ($criticalHigh critical/high)</>");
+                    $output->writeln('  <fg=red>⚠️  '.count($securityEvents)." vulnerabilities detected ($criticalHigh critical/high)</>");
                 } else {
-                    $output->writeln("  <fg=yellow>⚠️  " . count($securityEvents) . " vulnerabilities detected (medium/low severity)</>");
+                    $output->writeln('  <fg=yellow>⚠️  '.count($securityEvents).' vulnerabilities detected (medium/low severity)</>');
                 }
             }
         }

@@ -38,7 +38,7 @@ class PerimeterReport extends Command
     public function handle()
     {
         $this->info('🚀 Starting security report generation...');
-        
+
         // Get report parameters
         $scanId = $this->option('scan-id');
         $from = $this->option('from');
@@ -48,7 +48,7 @@ class PerimeterReport extends Command
         $format = $this->option('format');
         $output = $this->option('output');
         $scansOnly = $this->option('scans-only');
-        
+
         $this->info('📋 Report parameters parsed successfully');
 
         // If showing scans only, display scan summary and return
@@ -98,7 +98,7 @@ class PerimeterReport extends Command
         $this->info('📊 Retrieving security events from database...');
         $eventClass = config('perimeter.storage.models.security_event', \Prahsys\Perimeter\Models\SecurityEvent::class);
         $query = $eventClass::query();
-        
+
         // Apply filters if provided
         if ($from) {
             $query->where('timestamp', '>=', \Carbon\Carbon::parse($from));
@@ -112,7 +112,7 @@ class PerimeterReport extends Command
         if ($severity) {
             $query->whereIn('severity', explode(',', $severity));
         }
-        
+
         $events = $query->orderBy('timestamp', 'desc')->get()->toArray();
         $this->info('✅ Security events retrieved successfully');
 
@@ -152,7 +152,7 @@ class PerimeterReport extends Command
             $this->newLine();
             $this->line('This is good news! No security issues were detected during recent scans.');
             $this->newLine();
-            
+
             $this->line('To perform a new security scan, run:');
             $this->line('  <fg=yellow>php artisan perimeter:audit</>');
             $this->newLine();

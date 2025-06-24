@@ -5,7 +5,6 @@ namespace Prahsys\Perimeter\Commands;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
-use Prahsys\Perimeter\Facades\Perimeter;
 
 class PerimeterAudit extends Command
 {
@@ -74,13 +73,13 @@ class PerimeterAudit extends Command
 
         // Generate summary from recent database events instead of running duplicate scans
         $this->info('📊 Generating security summary...');
-        
+
         // Get recent events for summary (last hour to include current audit)
         $recentEvents = \Prahsys\Perimeter\Models\SecurityEvent::where('created_at', '>=', now()->subHour())->get();
-        
+
         // Create a simple audit result for summary
         $auditResult = new \Prahsys\Perimeter\AuditResult([], [], []);
-        
+
         $format = $this->option('format');
 
         if ($format === 'json') {

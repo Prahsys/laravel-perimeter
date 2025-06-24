@@ -356,6 +356,11 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             'exclude_paths' => $excludePaths,
         ];
 
+        // Determine if service is functional (can operate)
+        // ClamAV is functional if it's installed and configured, regardless of daemon status
+        // because it can fall back to direct scanning mode
+        $functional = $enabled && $installed && $configured;
+
         return new \Prahsys\Perimeter\Data\ServiceStatusData(
             name: 'clamav',
             enabled: $enabled,
@@ -363,7 +368,8 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             configured: $configured,
             running: $running,
             message: $message,
-            details: $details
+            details: $details,
+            functional: $functional
         );
     }
 
@@ -409,7 +415,7 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
      */
     protected function performServiceSpecificAuditChecks($output = null): array
     {
-        if (!$this->isEnabled() || !$this->isInstalled() || !$this->isConfigured()) {
+        if (! $this->isEnabled() || ! $this->isInstalled() || ! $this->isConfigured()) {
             return [];
         }
 
@@ -418,7 +424,7 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
         $excludePatterns = $this->config['exclude_patterns'] ?? [];
 
         if ($output) {
-            $output->writeln("  <fg=yellow>🔍 Scanning " . count($scanPaths) . " paths for malware...</>");
+            $output->writeln('  <fg=yellow>🔍 Scanning '.count($scanPaths).' paths for malware...</>');
         }
 
         // Perform the actual scan
@@ -437,9 +443,9 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
 
         if ($output) {
             if (empty($securityEvents)) {
-                $output->writeln("  <fg=green>✅ No malware detected</>");
+                $output->writeln('  <fg=green>✅ No malware detected</>');
             } else {
-                $output->writeln("  <fg=red>⚠️  " . count($securityEvents) . " threats detected</>");
+                $output->writeln('  <fg=red>⚠️  '.count($securityEvents).' threats detected</>');
             }
         }
 

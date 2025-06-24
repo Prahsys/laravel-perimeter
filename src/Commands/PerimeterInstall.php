@@ -51,6 +51,7 @@ class PerimeterInstall extends Command
             $this->warn('Configuration file not found. Please publish it first with:');
             $this->line('  php artisan vendor:publish --tag=perimeter-config');
             $this->newLine();
+
             return 1;
         }
 

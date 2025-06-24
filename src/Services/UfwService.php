@@ -507,6 +507,10 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
             'restricted_ports' => $restrictedPorts,
         ];
 
+        // UFW can be functional even when not actively enabled (firewall is optional)
+        // Consider it functional if installed and package is enabled
+        $functional = $enabled && $installed;
+
         return new \Prahsys\Perimeter\Data\ServiceStatusData(
             name: 'ufw',
             enabled: $enabled,
@@ -514,7 +518,8 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
             configured: $configured,
             running: $running,
             message: $message,
-            details: $details
+            details: $details,
+            functional: $functional
         );
     }
 

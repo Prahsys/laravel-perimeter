@@ -139,7 +139,7 @@ abstract class AbstractSecurityService implements SecurityServiceInterface
         if ($output && in_array($serviceName, ['clamav', 'trivy'])) {
             $output->writeln("  <fg=yellow>⏳ Running {$displayName} security scan...</>");
             if ($serviceName === 'clamav') {
-                $output->writeln("  <fg=cyan>💡 Watch scan progress with: tail -f /tmp/clamav-scan.log</>");
+                $output->writeln('  <fg=cyan>💡 Watch scan progress with: tail -f /tmp/clamav-scan.log</>');
             }
         }
 
