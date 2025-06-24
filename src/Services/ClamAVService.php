@@ -280,8 +280,8 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                     $running = is_readable($socketPath) || is_writable($socketPath);
                 }
 
-                // If still not detected as running, but the binary exists, try clamdscan with extended timeout
-                if (! $running) {
+                // Only check daemon binary if we have sufficient memory for daemon mode
+                if (! $running && $this->hasSufficientMemoryForDaemon()) {
                     $scanProcess = new \Symfony\Component\Process\Process(['clamdscan', '--version']);
                     $scanProcess->setTimeout($this->config['health_check_timeout'] ?? 300); // Configurable timeout
                     try {
