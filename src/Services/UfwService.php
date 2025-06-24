@@ -67,17 +67,56 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
             return false;
         }
 
-        // Check if UFW is enabled
-        $process = new Process(['ufw', 'status']);
-        $process->run();
+        // Check if UFW configuration exists by looking at config files
+        // This avoids requiring root privileges for status checks
+        $configPaths = [
+            '/etc/ufw/ufw.conf',
+            '/lib/ufw/ufw-init',
+            '/etc/default/ufw',
+        ];
 
-        if (! $process->isSuccessful()) {
+        $hasConfig = false;
+        foreach ($configPaths as $path) {
+            if (file_exists($path) && is_readable($path)) {
+                $hasConfig = true;
+                break;
+            }
+        }
+
+        if (! $hasConfig) {
             return false;
         }
 
-        $output = $process->getOutput();
+        // Check if UFW is enabled by reading the configuration file
+        $ufwConfPath = '/etc/ufw/ufw.conf';
+        if (file_exists($ufwConfPath) && is_readable($ufwConfPath)) {
+            $content = file_get_contents($ufwConfPath);
 
-        return strpos($output, 'Status: active') !== false;
+            // Look for ENABLED=yes in the config file
+            if (preg_match('/ENABLED\s*=\s*yes/i', $content)) {
+                return true;
+            }
+        }
+
+        // Fallback: try to run ufw status if we have sufficient privileges
+        // but don't fail if we can't (this maintains backward compatibility)
+        try {
+            $process = new Process(['ufw', 'status']);
+            $process->run();
+
+            if ($process->isSuccessful()) {
+                $output = $process->getOutput();
+
+                return strpos($output, 'Status: active') !== false;
+            }
+        } catch (\Exception $e) {
+            // If we can't run the command, that's okay - we'll rely on file-based checks
+            Log::debug('Cannot run ufw status command, using file-based configuration check: '.$e->getMessage());
+        }
+
+        // If we have config files but UFW is not enabled, consider it configured but inactive
+        // This distinguishes between "not installed" and "installed but disabled"
+        return $hasConfig;
     }
 
     /**
@@ -460,36 +499,47 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
         $defaultPolicy = 'unknown';
         $message = '';
 
-        if (! $enabled || ! $configured) {
-            $message = 'UFW is not enabled or not configured properly';
+        // Determine running status by checking config file first
+        $running = $this->isUfwActiveViaConfig();
+
+        if (! $enabled) {
+            $message = 'UFW is disabled in Perimeter configuration';
+        } elseif (! $installed) {
+            $message = 'UFW is not installed on the system';
+        } elseif (! $configured) {
+            $message = 'UFW is installed but configuration files are not accessible';
         } else {
-            // Get detailed status from UFW
-            $process = new Process(['ufw', 'status', 'verbose']);
-            $process->run();
+            // Try to get detailed status from UFW if we have privileges
+            $statusResult = $this->getUfwStatusSafely();
 
-            if (! $process->isSuccessful()) {
-                Log::warning('Failed to get UFW status: '.$process->getErrorOutput());
-                $message = 'Failed to get UFW status: '.$process->getErrorOutput();
-            } else {
-                $output = $process->getOutput();
-                $ufwStatus = UfwOutputParser::parseStatusOutput($output);
-
+            if ($statusResult['success']) {
+                $ufwStatus = UfwOutputParser::parseStatusOutput($statusResult['output']);
                 $rules = $ufwStatus['rules'] ?? [];
                 $defaultPolicy = $ufwStatus['default_policy'] ?? 'unknown';
-                $running = $ufwStatus['active'] ?? false;
+                $running = $ufwStatus['active'] ?? $running; // Use command result if available
 
-                // Create descriptive message (this is shown in the perimeter:health output, not on perimeter:audit)
+                // Create descriptive message
                 if ($running) {
                     $message = 'UFW is active and configured properly';
-
-                    // Check if any rules are defined
                     if (empty($rules)) {
                         $message .= ' but no specific rules are defined';
                     } else {
                         $message .= ' with '.count($rules).' rule(s) defined';
                     }
                 } else {
-                    $message = 'UFW is installed but not active (disabled)';
+                    $message = 'UFW is installed but not active';
+                }
+            } else {
+                // Fallback to file-based status when we can't run commands
+                if ($running) {
+                    $message = 'UFW is configured and enabled (based on configuration files)';
+                } else {
+                    $message = 'UFW is installed but not active';
+                }
+
+                // Add note about permission limitation
+                if (strpos($statusResult['error'], 'root') !== false) {
+                    $message .= '. Run as root for detailed status.';
                 }
             }
         }
@@ -608,5 +658,51 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
         }
 
         return $issues;
+    }
+
+    /**
+     * Check if UFW is active by reading configuration files (non-privileged)
+     */
+    protected function isUfwActiveViaConfig(): bool
+    {
+        $ufwConfPath = '/etc/ufw/ufw.conf';
+        if (file_exists($ufwConfPath) && is_readable($ufwConfPath)) {
+            $content = file_get_contents($ufwConfPath);
+
+            return preg_match('/ENABLED\s*=\s*yes/i', $content) === 1;
+        }
+
+        return false;
+    }
+
+    /**
+     * Safely get UFW status without requiring root privileges
+     */
+    protected function getUfwStatusSafely(): array
+    {
+        try {
+            $process = new Process(['ufw', 'status', 'verbose']);
+            $process->run();
+
+            if ($process->isSuccessful()) {
+                return [
+                    'success' => true,
+                    'output' => $process->getOutput(),
+                    'error' => null,
+                ];
+            } else {
+                return [
+                    'success' => false,
+                    'output' => '',
+                    'error' => $process->getErrorOutput(),
+                ];
+            }
+        } catch (\Exception $e) {
+            return [
+                'success' => false,
+                'output' => '',
+                'error' => $e->getMessage(),
+            ];
+        }
     }
 }

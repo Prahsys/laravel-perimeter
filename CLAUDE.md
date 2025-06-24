@@ -73,6 +73,12 @@ We've been working on improving the Laravel Perimeter security package, focusing
 - Removed TEST_ENTRY filtering (lines 147-150)
 - Now processes all log entries without artificial filtering
 
+### Health Check Logic Fix (`src/Data/ServiceStatusData.php`)
+- **LATEST FIX**: Prioritized functional status over configured requirement
+- Optional services (UFW, Fail2Ban) now show as "Healthy" when installed but not configured
+- Resolves issue where `perimeter:install` appeared broken but services were actually fine
+- `functional` status now takes precedence over traditional `configured` requirement
+
 ### Health Check Improvements (`src/Data/ServiceStatusData.php`)
 - **NEW FEATURE**: Added `functional` parameter to distinguish daemon status from operational capability
 - **Service-Aware Logic**: ClamAV reports healthy when using direct scanning mode even if daemon isn't running
