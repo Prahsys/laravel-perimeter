@@ -37,6 +37,8 @@ class PerimeterReport extends Command
      */
     public function handle()
     {
+        $this->info('🚀 Starting security report generation...');
+        
         // Get report parameters
         $scanId = $this->option('scan-id');
         $from = $this->option('from');
@@ -46,6 +48,8 @@ class PerimeterReport extends Command
         $format = $this->option('format');
         $output = $this->option('output');
         $scansOnly = $this->option('scans-only');
+        
+        $this->info('📋 Report parameters parsed successfully');
 
         // If showing scans only, display scan summary and return
         if ($scansOnly) {
@@ -62,10 +66,13 @@ class PerimeterReport extends Command
         }
 
         // Regular event reporting flow
+        $this->info('🔍 Initializing report builder...');
         $report = Perimeter::report();
 
         // Set up the report with the service manager for more extensibility
+        $this->info('🔧 Loading service manager...');
         $serviceManager = app()->make('Prahsys\Perimeter\Services\ServiceManager');
+        $this->info('🔗 Connecting service manager to report...');
         $report->setServiceManager($serviceManager);
 
         if ($from) {
@@ -88,7 +95,9 @@ class PerimeterReport extends Command
         $report->format($format === 'text' ? 'json' : $format);
 
         // Get the report data
+        $this->info('📊 Retrieving security events...');
         $events = $report->get();
+        $this->info('✅ Security events retrieved successfully');
 
         // Export to file if output path is specified
         if ($output && $format !== 'text') {
