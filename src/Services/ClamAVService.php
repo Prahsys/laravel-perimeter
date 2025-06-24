@@ -231,15 +231,18 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             return false;
         }
 
-        // Try to run a simple clamdscan help command to verify it's working
-        $process = new \Symfony\Component\Process\Process(['clamdscan', '--help']);
-        $process->run();
+        // Only try clamdscan if we have sufficient memory for daemon mode
+        if ($this->hasSufficientMemoryForDaemon()) {
+            $process = new \Symfony\Component\Process\Process(['clamdscan', '--help']);
+            $process->setTimeout(30); // Short timeout for help command
+            $process->run();
 
-        if ($process->isSuccessful()) {
-            return true;
+            if ($process->isSuccessful()) {
+                return true;
+            }
         }
 
-        // If clamdscan doesn't work, check if clamscan is usable
+        // Check if clamscan is usable (works in all memory environments)
         $process = new \Symfony\Component\Process\Process(['clamscan', '--help']);
         $process->run();
 
