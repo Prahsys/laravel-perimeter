@@ -20,8 +20,9 @@ We've been working on improving the Laravel Perimeter security package, focusing
 
 3. **Timeout Issues** ✅ RESOLVED
    - **Report Command Fix**: `perimeter:report` no longer runs system commands that can timeout
+   - **Database-Only Reporting**: Report command now uses direct database queries instead of live scanning
    - **Configurable Timeouts**: Added configurable timeouts for ClamAV and Trivy scans
-   - **Production-Friendly Defaults**: Extended timeouts for large codebases in production
+   - **Production-Friendly Defaults**: Extended timeouts for large codebases in production (1800s/30min)
 
 4. **Code Quality** ✅ MAINTAINED
    - All package tests passing (55 tests, 274 assertions)
@@ -38,8 +39,9 @@ We've been working on improving the Laravel Perimeter security package, focusing
 - Better error logging for permission issues
 
 ### Trivy Service Improvements (`src/Services/TrivyService.php`)
-- Added configurable `scan_timeout` for vulnerability scans (default: 900 seconds / 15 minutes)
+- Added configurable `scan_timeout` for vulnerability scans (default: 1800 seconds / 30 minutes)
 - Applied to both filesystem scans and system package scans
+- Enhanced configuration with proper timeout settings in config file
 - More production-friendly defaults for large codebases
 
 ### Memory-Aware ClamAV Scanning (`src/Services/ClamAVService.php`)
@@ -51,7 +53,9 @@ We've been working on improving the Laravel Perimeter security package, focusing
 
 ### Report Command Fix (`src/Commands/PerimeterReport.php`)
 - **CRITICAL FIX**: Report command no longer runs system processes that can timeout
-- Now uses `$service->getStatus()->details['version']` instead of executing version commands
+- **Database-Only Approach**: Replaced `ReportBuilder::get()` with direct database queries
+- **Eliminated Live Scanning**: Report command now only reads existing data from database
+- **Removed Service Status Calls**: Simplified empty events display to avoid timeout-prone service status checks
 - Maintains proper separation: reporting = read data, auditing = generate data
 
 ### Test Data Improvements (`src/Commands/PerimeterSeedTestData.php`)
@@ -71,8 +75,8 @@ You can now configure timeouts in your `config/perimeter.php`:
 'services' => [
     'clamav' => [
         'enabled' => true,
-        'health_check_timeout' => 600, // 10 minutes for slow servers
-        'scan_timeout' => 900, // 15 minutes for large scans
+        'health_check_timeout' => 300, // 5 minutes for health checks
+        'scan_timeout' => 1800, // 30 minutes for large scans
         'min_memory_for_daemon' => 1536, // 1.5GB minimum for daemon mode
         'force_direct_scan' => false, // Force direct scanning even if daemon is available
         // ... other config
@@ -196,10 +200,12 @@ When resuming work after context compression, ask these questions to get back up
 ## Important Files Changed
 
 - `src/Services/ClamAVService.php` - Enhanced permission handling and configurable timeouts
-- `src/Services/TrivyService.php` - Added configurable scan timeouts
-- `src/Commands/PerimeterReport.php` - Fixed timeout issues by removing system command execution
+- `src/Services/TrivyService.php` - Added configurable scan timeouts and service audit implementation
+- `src/Commands/PerimeterReport.php` - Fixed timeout issues with database-only approach
+- `src/Commands/PerimeterAudit.php` - Eliminated duplicate scanning and added proper progress indicators
 - `src/Commands/PerimeterSeedTestData.php` - Removed --force option, automatic file copying
 - `src/Parsers/Fail2banOutputParser.php` - Removed TEST_ENTRY filtering
+- `config/perimeter.php` - Added proper timeout configuration for Trivy service
 
 ## Remote Environment Testing Checklist
 

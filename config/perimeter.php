@@ -88,6 +88,7 @@ return [
             ],
             'scan_schedule' => 'daily',
             'severity_threshold' => env('TRIVY_SEVERITY_THRESHOLD', 'MEDIUM'),
+            'scan_timeout' => env('PERIMETER_TRIVY_SCAN_TIMEOUT', 1800), // 30 minutes for large codebases
         ],
 
         \Prahsys\Perimeter\Services\UfwService::class => [
