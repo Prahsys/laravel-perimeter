@@ -46,15 +46,14 @@ class PerimeterInstall extends Command
         $this->info('Installing Perimeter security components...');
         $this->newLine();
 
-        // Publish configuration file
-        if (! File::exists(config_path('perimeter.php')) || $this->option('force')) {
-            $this->call('vendor:publish', [
-                '--tag' => 'perimeter-config',
-            ]);
-        } else {
-            $this->line('Configuration file already published. Use --force to overwrite.');
+        // Check if configuration is published
+        if (! File::exists(config_path('perimeter.php'))) {
+            $this->warn('Configuration file not found. Please publish it first with:');
+            $this->line('  php artisan vendor:publish --tag=perimeter-config');
+            $this->newLine();
+
+            return 1;
         }
-        $this->newLine();
 
         // Dynamically install each service using their dedicated installer
         // Each service must define an 'installer' key in its config pointing to the installer class
@@ -142,6 +141,11 @@ class PerimeterInstall extends Command
 
         $this->info('Add the following to your scheduler to enable regular security scanning:');
         $this->line('  $schedule->command(\'perimeter:audit\')->daily();');
+        $this->newLine();
+
+        $this->comment('Configuration Management:');
+        $this->line('  To publish config:     php artisan vendor:publish --tag=perimeter-config');
+        $this->line('  To publish migrations: php artisan vendor:publish --tag=perimeter-migrations');
         $this->newLine();
 
         return 0;

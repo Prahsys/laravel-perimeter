@@ -135,6 +135,14 @@ abstract class AbstractSecurityService implements SecurityServiceInterface
             return $result;
         }
 
+        // Show progress indicator for long-running scans
+        if ($output && in_array($serviceName, ['clamav', 'trivy'])) {
+            $output->writeln("  <fg=yellow>⏳ Running {$displayName} security scan...</>");
+            if ($serviceName === 'clamav') {
+                $output->writeln('  <fg=cyan>💡 Watch scan progress with: tail -f /tmp/clamav-scan.log</>');
+            }
+        }
+
         // Run service-specific checks
         $issues = $this->performServiceSpecificAuditChecks($output);
         $result->issues = $issues;

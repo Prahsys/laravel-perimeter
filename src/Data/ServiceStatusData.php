@@ -16,7 +16,8 @@ class ServiceStatusData extends Data
         public bool $configured,
         public bool $running = false,
         public string $message = '',
-        public array $details = []
+        public array $details = [],
+        public ?bool $functional = null  // Service can operate even if daemon not running
     ) {}
 
     /**
@@ -76,13 +77,29 @@ class ServiceStatusData extends Data
     }
 
     /**
-     * Check if the service is healthy (enabled, installed, configured, and running).
+     * Check if the service is healthy (enabled, installed, configured, and functional).
+     * Services can be healthy even if daemon is not running if they can operate in alternative mode.
      * Disabled services are considered N/A for health status.
      */
     public function isHealthy(): bool
     {
-        // For enabled services, they must be installed, configured, and running
-        return $this->enabled && $this->installed && $this->configured && $this->running;
+        if (! $this->enabled) {
+            return false;
+        }
+
+        // If functional status is explicitly set, use that instead of basic requirements
+        // This allows services to be healthy even when not traditionally "configured"
+        if ($this->functional !== null) {
+            return $this->functional;
+        }
+
+        // Basic requirements: installed and configured
+        if (! $this->installed || ! $this->configured) {
+            return false;
+        }
+
+        // Default behavior: require daemon to be running
+        return $this->running;
     }
 
     /**

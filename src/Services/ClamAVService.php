@@ -43,10 +43,16 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                 return ScanResult::clean($filePath);
             }
 
-            // Use ClamAV to scan the file
-            $scanCommand = 'clamdscan --fdpass '.escapeshellarg($filePath);
+            // Choose scan method based on available memory and daemon status
+            if ($this->shouldUseDaemonMode()) {
+                $scanCommand = 'clamdscan --fdpass '.escapeshellarg($filePath);
+            } else {
+                // Use direct scanning for low-memory environments
+                $scanCommand = 'clamscan --no-summary '.escapeshellarg($filePath);
+            }
+
             $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
-            $process->setTimeout(60); // 60 seconds timeout
+            $process->setTimeout($this->config['scan_timeout'] ?? 1800); // Default 30 minutes for large files
             $process->run();
 
             $output = $process->getOutput();
@@ -101,10 +107,19 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
 
             // If the path is a file, scan it directly
             if (is_file($path)) {
+                Log::info("ClamAV: Scanning file: $path");
                 $this->scanSinglePath($path, $excludePatterns, $results);
             } else {
+                Log::info("ClamAV: Scanning directory: $path");
+                Log::info('ClamAV: Watch scan progress with: tail -f /tmp/clamav-scan.log');
+
                 // For directories, use the recursive scan option of ClamAV
-                $scanCommand = 'clamdscan -r '.escapeshellarg($path);
+                if ($this->shouldUseDaemonMode()) {
+                    $scanCommand = 'clamdscan -r '.escapeshellarg($path);
+                } else {
+                    // Use direct scanning for low-memory environments
+                    $scanCommand = 'clamscan -r --no-summary '.escapeshellarg($path);
+                }
 
                 if (! empty($excludePatterns)) {
                     // Create a temporary exclude file for clamdscan
@@ -113,12 +128,29 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                     $scanCommand .= ' --exclude-list='.escapeshellarg($excludeFile);
                 }
 
-                $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
-                $process->setTimeout(300); // 5 minutes timeout for large directories
+                // Redirect output directly to log file
+                $scanLogPath = '/tmp/clamav-scan.log';
+                $timestamp = date('Y-m-d H:i:s');
+                $logHeader = "\n[{$timestamp}] Starting ClamAV scan of: {$path}\n";
+                file_put_contents($scanLogPath, $logHeader, FILE_APPEND | LOCK_EX);
+
+                $scanCommand .= " >> {$scanLogPath} 2>&1";
+
+                $process = new \Symfony\Component\Process\Process(['sh', '-c', $scanCommand]);
+                $process->setTimeout($this->config['scan_timeout'] ?? 1800); // Default 30 minutes for large scans
                 $process->run();
 
                 $output = $process->getOutput();
                 $exitCode = $process->getExitCode();
+
+                // Log completion status
+                if ($exitCode === 0) {
+                    Log::info("ClamAV: Scan completed - no threats found in $path");
+                } elseif ($exitCode === 1) {
+                    Log::warning("ClamAV: Scan completed - threats found in $path");
+                } else {
+                    Log::warning("ClamAV: Scan completed with errors for $path");
+                }
 
                 // If viruses were found, parse the output to get details
                 if ($exitCode === 1) {
@@ -182,11 +214,17 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             return true;
         }
 
-        // Try clamdscan as an alternative
-        $process = new \Symfony\Component\Process\Process(['clamdscan', '--version']);
-        $process->run();
+        // Only try clamdscan if we have sufficient memory for daemon mode
+        if ($this->hasSufficientMemoryForDaemon()) {
+            $process = new \Symfony\Component\Process\Process(['clamdscan', '--version']);
+            $process->setTimeout(30); // Short timeout for version command
+            $process->run();
 
-        return $process->isSuccessful();
+            return $process->isSuccessful();
+        }
+
+        // If insufficient memory for daemon mode, clamscan being available is sufficient
+        return false;
     }
 
     /**
@@ -199,15 +237,18 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             return false;
         }
 
-        // Try to run a simple clamdscan help command to verify it's working
-        $process = new \Symfony\Component\Process\Process(['clamdscan', '--help']);
-        $process->run();
+        // Only try clamdscan if we have sufficient memory for daemon mode
+        if ($this->hasSufficientMemoryForDaemon()) {
+            $process = new \Symfony\Component\Process\Process(['clamdscan', '--help']);
+            $process->setTimeout(30); // Short timeout for help command
+            $process->run();
 
-        if ($process->isSuccessful()) {
-            return true;
+            if ($process->isSuccessful()) {
+                return true;
+            }
         }
 
-        // If clamdscan doesn't work, check if clamscan is usable
+        // Check if clamscan is usable (works in all memory environments)
         $process = new \Symfony\Component\Process\Process(['clamscan', '--help']);
         $process->run();
 
@@ -248,13 +289,19 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                     $running = is_readable($socketPath) || is_writable($socketPath);
                 }
 
-                // If still not detected as running, but the binary exists, try clamdscan
-                if (! $running) {
+                // Only check daemon binary if we have sufficient memory for daemon mode
+                if (! $running && $this->hasSufficientMemoryForDaemon()) {
                     $scanProcess = new \Symfony\Component\Process\Process(['clamdscan', '--version']);
-                    $scanProcess->run();
-
-                    // If clamdscan returns successfully, consider the daemon running in container
-                    $running = $scanProcess->isSuccessful();
+                    $scanProcess->setTimeout($this->config['health_check_timeout'] ?? 300); // Configurable timeout for health checks
+                    try {
+                        $scanProcess->run();
+                        // If clamdscan returns successfully, consider the daemon running in container
+                        $running = $scanProcess->isSuccessful();
+                    } catch (\Symfony\Component\Process\Exception\ProcessTimedOutException $e) {
+                        $timeout = $this->config['health_check_timeout'] ?? 300;
+                        Log::warning("ClamAV daemon check timed out after {$timeout} seconds, daemon likely not running");
+                        $running = false;
+                    }
                 }
             }
         } catch (\Exception $e) {
@@ -293,6 +340,8 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             $message = 'ClamAV is not installed on the system.';
         } elseif (! $configured) {
             $message = 'ClamAV is installed but not properly configured.';
+        } elseif (! $running && ! $this->hasSufficientMemoryForDaemon()) {
+            $message = 'ClamAV is installed and configured. Using direct scanning (daemon requires more memory).';
         } elseif (! $running) {
             $message = 'ClamAV is installed and configured but daemon is not running.';
         } else {
@@ -307,6 +356,11 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             'exclude_paths' => $excludePaths,
         ];
 
+        // Determine if service is functional (can operate)
+        // ClamAV is functional if it's installed and configured, regardless of daemon status
+        // because it can fall back to direct scanning mode
+        $functional = $enabled && $installed && $configured;
+
         return new \Prahsys\Perimeter\Data\ServiceStatusData(
             name: 'clamav',
             enabled: $enabled,
@@ -314,7 +368,8 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             configured: $configured,
             running: $running,
             message: $message,
-            details: $details
+            details: $details,
+            functional: $functional
         );
     }
 
@@ -353,6 +408,49 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
      * Cached instance of BackgroundProcessManager
      */
     protected ?BackgroundProcessManager $processManager = null;
+
+    /**
+     * Run service-specific audit checks.
+     * Perform ClamAV scanning during the audit process.
+     */
+    protected function performServiceSpecificAuditChecks($output = null): array
+    {
+        if (! $this->isEnabled() || ! $this->isInstalled() || ! $this->isConfigured()) {
+            return [];
+        }
+
+        // Get scan configuration
+        $scanPaths = $this->config['scan_paths'] ?? [base_path()];
+        $excludePatterns = $this->config['exclude_patterns'] ?? [];
+
+        if ($output) {
+            $output->writeln('  <fg=yellow>🔍 Scanning '.count($scanPaths).' paths for malware...</>');
+        }
+
+        // Perform the actual scan
+        $scanResults = $this->scanPaths($scanPaths, $excludePatterns);
+
+        // Convert scan results to SecurityEventData objects
+        $securityEvents = [];
+        foreach ($scanResults as $result) {
+            $securityEvents[] = $this->resultToSecurityEventData([
+                'timestamp' => now(),
+                'threat' => $result['threat'] ?? 'Unknown threat',
+                'file' => $result['file'] ?? 'Unknown file',
+                'scan_id' => null,
+            ]);
+        }
+
+        if ($output) {
+            if (empty($securityEvents)) {
+                $output->writeln('  <fg=green>✅ No malware detected</>');
+            } else {
+                $output->writeln('  <fg=red>⚠️  '.count($securityEvents).' threats detected</>');
+            }
+        }
+
+        return $securityEvents;
+    }
 
     /**
      * Recent events storage
@@ -857,58 +955,76 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
      */
     public function install(array $options = []): bool
     {
+        Log::info('Installing ClamAV with minimal configuration');
+
+        // Check if already installed and not forcing reinstall
+        if ($this->isInstalled() && ! ($options['force'] ?? false)) {
+            Log::info('ClamAV is already installed. Use --force to reinstall.');
+            return true;
+        }
+
+        // Store force flag if set
+        if ($options['force'] ?? false) {
+            $this->config['force'] = true;
+        }
+
+        // Critical step: Install ClamAV packages
         try {
-            Log::info('Installing ClamAV with minimal configuration');
-
-            // Check if already installed and not forcing reinstall
-            if ($this->isInstalled() && ! ($options['force'] ?? false)) {
-                Log::info('ClamAV is already installed. Use --force to reinstall.');
-
-                return true;
-            }
-
-            // Store force flag if set
-            if ($options['force'] ?? false) {
-                $this->config['force'] = true;
-            }
-
-            // Install ClamAV packages
             if (! $this->installPackages()) {
+                Log::error('Failed to install ClamAV packages - this is a critical failure');
                 return false;
             }
-
-            // Create required directories
-            $this->createRequiredDirectories();
-
-            // Copy configuration files
-            $this->copyConfigurationFiles();
-
-            // Copy systemd service files
-            $this->copySystemdServices();
-
-            // Update virus database
-            $this->updateDefinitions();
-
-            // Start service if requested
-            if ($options['start'] ?? true) {
-                $this->startService();
-            }
-
-            // Create symlinks for binary detection
-            $this->createBinarySymlinks();
-
-            // Verify the installation
-            $status = $this->getStatus();
-            if ($status->running) {
-                Log::info('ClamAV installed and running successfully');
-            } else {
-                Log::warning('ClamAV installed but not running correctly. Check system logs for details.');
-            }
-
-            return true;
         } catch (\Exception $e) {
-            Log::error('Error installing ClamAV: '.$e->getMessage());
+            Log::error('Critical failure installing ClamAV packages: '.$e->getMessage());
+            return false;
+        }
 
+        // Optional steps: Don't fail installation if these have issues
+        try {
+            $this->createRequiredDirectories();
+        } catch (\Exception $e) {
+            Log::warning('Failed to create directories (non-critical): '.$e->getMessage());
+        }
+
+        try {
+            $this->copyConfigurationFiles();
+        } catch (\Exception $e) {
+            Log::warning('Failed to copy configuration files (non-critical): '.$e->getMessage());
+        }
+
+        try {
+            $this->copySystemdServices();
+        } catch (\Exception $e) {
+            Log::warning('Failed to copy systemd services (non-critical): '.$e->getMessage());
+        }
+
+        try {
+            $this->updateDefinitions();
+        } catch (\Exception $e) {
+            Log::warning('Failed to update virus definitions (non-critical): '.$e->getMessage());
+        }
+
+        try {
+            $this->createBinarySymlinks();
+        } catch (\Exception $e) {
+            Log::warning('Failed to create binary symlinks (non-critical): '.$e->getMessage());
+        }
+
+        // Optional: Start service if requested
+        if ($options['start'] ?? true) {
+            try {
+                $this->startService();
+            } catch (\Exception $e) {
+                Log::warning('Failed to start service (non-critical): '.$e->getMessage());
+            }
+        }
+
+        // Final verification: Check if ClamAV is actually installed
+        if ($this->isInstalled()) {
+            Log::info('ClamAV installation completed successfully');
+            return true;
+        } else {
+            Log::error('ClamAV installation verification failed - package not detected');
             return false;
         }
     }
@@ -1300,10 +1416,105 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
     }
 
     /**
+     * Check if we should use daemon mode or direct scanning.
+     */
+    protected function shouldUseDaemonMode(): bool
+    {
+        // If daemon is explicitly disabled in config, use direct scanning
+        if (isset($this->config['force_direct_scan']) && $this->config['force_direct_scan']) {
+            Log::info('ClamAV: Using direct scanning (forced by configuration)');
+
+            return false;
+        }
+
+        // Check if we have sufficient memory for daemon mode
+        if (! $this->hasSufficientMemoryForDaemon()) {
+            Log::info('ClamAV: Using direct scanning (insufficient memory for daemon)');
+
+            return false;
+        }
+
+        // Check if daemon is actually running
+        if (! $this->isClamdRunning()) {
+            Log::info('ClamAV: Using direct scanning (daemon not running)');
+
+            return false;
+        }
+
+        Log::info('ClamAV: Using daemon scanning (optimal performance)');
+
+        return true;
+    }
+
+    /**
+     * Check if system has sufficient memory for ClamAV daemon.
+     */
+    protected function hasSufficientMemoryForDaemon(): bool
+    {
+        $availableMemoryMB = $this->getAvailableMemoryMB();
+        $requiredMemoryMB = $this->config['min_memory_for_daemon'] ?? 1536; // 1.5GB default
+
+        if ($availableMemoryMB === null) {
+            // Cannot determine memory, assume we have enough
+            Log::debug('ClamAV: Cannot determine available memory, assuming daemon mode is OK');
+
+            return true;
+        }
+
+        Log::debug("ClamAV: Available memory: {$availableMemoryMB}MB, Required: {$requiredMemoryMB}MB");
+
+        return $availableMemoryMB >= $requiredMemoryMB;
+    }
+
+    /**
+     * Get available system memory in MB.
+     */
+    protected function getAvailableMemoryMB(): ?int
+    {
+        try {
+            // Try to get memory info from /proc/meminfo (Linux)
+            if (file_exists('/proc/meminfo')) {
+                $meminfo = file_get_contents('/proc/meminfo');
+
+                // Get MemAvailable (preferred) or calculate from MemFree + Buffers + Cached
+                if (preg_match('/MemAvailable:\s+(\d+)\s+kB/', $meminfo, $matches)) {
+                    return (int) ($matches[1] / 1024); // Convert KB to MB
+                }
+
+                // Fallback calculation
+                $memFree = 0;
+                $buffers = 0;
+                $cached = 0;
+
+                if (preg_match('/MemFree:\s+(\d+)\s+kB/', $meminfo, $matches)) {
+                    $memFree = (int) $matches[1];
+                }
+                if (preg_match('/Buffers:\s+(\d+)\s+kB/', $meminfo, $matches)) {
+                    $buffers = (int) $matches[1];
+                }
+                if (preg_match('/Cached:\s+(\d+)\s+kB/', $meminfo, $matches)) {
+                    $cached = (int) $matches[1];
+                }
+
+                return (int) (($memFree + $buffers + $cached) / 1024); // Convert KB to MB
+            }
+
+            return null;
+        } catch (\Exception $e) {
+            Log::warning('Error determining available memory: '.$e->getMessage());
+
+            return null;
+        }
+    }
+
+    /**
      * Ensure required directories exist with proper permissions
      */
     protected function ensureDirectoriesExist(): void
     {
+        // First ensure the clamav user exists
+        $this->ensureClamavUserExists();
+
         $directories = [
             '/var/run/clamav' => 0755,
             '/var/lib/clamav' => 0755,
@@ -1316,16 +1527,115 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                     mkdir($dir, $perms, true);
                     chmod($dir, $perms);
                     Log::info("Created directory: $dir");
-
-                    // Try to set ownership if we're running as root
-                    if (posix_getuid() === 0) {
-                        shell_exec("chown clamav:clamav $dir");
-                    }
                 } catch (\Exception $e) {
                     Log::warning("Could not create directory $dir: ".$e->getMessage());
                 }
             }
+
+            // Ensure proper ownership regardless of whether directory existed
+            if ($this->isRunningAsRoot()) {
+                try {
+                    // First check if clamav user exists before setting ownership
+                    $userCheckProcess = new \Symfony\Component\Process\Process(['id', 'clamav']);
+                    $userCheckProcess->run();
+
+                    if ($userCheckProcess->isSuccessful()) {
+                        // Set ownership to clamav user
+                        $process = new \Symfony\Component\Process\Process(['chown', '-R', 'clamav:clamav', $dir]);
+                        $process->run();
+
+                        if ($process->isSuccessful()) {
+                            Log::info("Set ownership for $dir to clamav:clamav");
+                        } else {
+                            Log::warning("Failed to set ownership for $dir: ".$process->getErrorOutput());
+                        }
+                    } else {
+                        Log::warning("ClamAV user does not exist, using default ownership for $dir");
+                    }
+
+                    // Ensure permissions are correct
+                    chmod($dir, $perms);
+                } catch (\Exception $e) {
+                    Log::warning("Could not set ownership for $dir: ".$e->getMessage());
+                }
+            } else {
+                Log::info("Not running as root, skipping ownership changes for $dir");
+            }
         }
+    }
+
+    /**
+     * Ensure the clamav system user exists
+     */
+    protected function ensureClamavUserExists(): void
+    {
+        if (! $this->isRunningAsRoot()) {
+            Log::info('Not running as root, skipping clamav user creation');
+
+            return;
+        }
+
+        try {
+            // Check if clamav user already exists
+            $userCheckProcess = new \Symfony\Component\Process\Process(['id', 'clamav']);
+            $userCheckProcess->run();
+
+            if ($userCheckProcess->isSuccessful()) {
+                Log::info('ClamAV user already exists');
+
+                return;
+            }
+
+            // Create clamav user if it doesn't exist
+            Log::info('Creating clamav system user');
+            $createUserProcess = new \Symfony\Component\Process\Process([
+                'useradd',
+                '--system',
+                '--shell', '/bin/false',
+                '--home-dir', '/var/lib/clamav',
+                '--create-home',
+                '--comment', 'ClamAV antivirus',
+                'clamav',
+            ]);
+            $createUserProcess->run();
+
+            if ($createUserProcess->isSuccessful()) {
+                Log::info('Successfully created clamav system user');
+            } else {
+                Log::warning('Failed to create clamav user: '.$createUserProcess->getErrorOutput());
+            }
+
+        } catch (\Exception $e) {
+            Log::warning('Error ensuring clamav user exists: '.$e->getMessage());
+        }
+    }
+
+    /**
+     * Check if the command is running as root or with sudo.
+     */
+    protected function isRunningAsRoot(): bool
+    {
+        // On Unix/Linux systems
+        if (function_exists('posix_getuid')) {
+            return posix_getuid() === 0;
+        }
+
+        // Try to write to a system location to test permissions
+        try {
+            // If we can write to /tmp/sudo_test, we likely have root
+            $testFile = '/tmp/sudo_test_'.time();
+            $result = @file_put_contents($testFile, 'test');
+
+            if ($result !== false) {
+                @unlink($testFile);
+
+                return true;
+            }
+        } catch (\Exception $e) {
+            Log::warning('Failed to test for root permissions: '.$e->getMessage());
+        }
+
+        return false;
     }
 
     /**

@@ -57,7 +57,7 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
                 );
 
                 $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
-                $process->setTimeout(300); // 5 minutes timeout for large directories
+                $process->setTimeout($this->config['scan_timeout'] ?? 900); // Configurable timeout for large directories
                 $process->run();
 
                 if ($process->isSuccessful()) {
@@ -116,7 +116,7 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
             }
 
             $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
-            $process->setTimeout(300); // 5 minutes timeout for large scans
+            $process->setTimeout($this->config['scan_timeout'] ?? 900); // Default 15 minutes for production
             $process->run();
 
             if ($process->isSuccessful()) {
@@ -394,26 +394,29 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
      */
     public function install(array $options = []): bool
     {
+        Log::info('Installing Trivy with minimal configuration');
+
+        // Check if already installed and not forcing reinstall
+        if ($this->isInstalled() && ! ($options['force'] ?? false)) {
+            Log::info('Trivy is already installed. Use --force to reinstall.');
+            return true;
+        }
+
+        // Store force flag if provided
+        if ($options['force'] ?? false) {
+            $this->config['force'] = true;
+        }
+
+        // Optional: Create required directories
         try {
-            Log::info('Installing Trivy with minimal configuration');
-
-            // Check if already installed and not forcing reinstall
-            if ($this->isInstalled() && ! ($options['force'] ?? false)) {
-                Log::info('Trivy is already installed. Use --force to reinstall.');
-
-                return true;
-            }
-
-            // Store force flag if provided
-            if ($options['force'] ?? false) {
-                $this->config['force'] = true;
-            }
-
-            // Create required directories
             $this->mkdir_p('/var/log/trivy', 0755);
             $this->mkdir_p('/var/log/trivy/.cache', 0755);
+        } catch (\Exception $e) {
+            Log::warning('Failed to create directories (non-critical): '.$e->getMessage());
+        }
 
-            // Configure Trivy repository
+        // Critical step: Install Trivy package
+        try {
             Log::info('Configuring Trivy repository');
 
             // Determine OS distribution for installation
@@ -453,17 +456,28 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
             $process->run();
 
             if (! $process->isSuccessful()) {
-                Log::error('Failed to install Trivy: '.$process->getErrorOutput());
-
+                Log::error('Failed to install Trivy package - this is a critical failure: '.$process->getErrorOutput());
                 return false;
             }
+        } catch (\Exception $e) {
+            Log::error('Critical failure installing Trivy package: '.$e->getMessage());
+            return false;
+        }
 
-            // Copy systemd service files
+        // Optional steps: Don't fail installation if these have issues
+        try {
             $this->copySystemdServices();
+        } catch (\Exception $e) {
+            Log::warning('Failed to copy systemd services (non-critical): '.$e->getMessage());
+        }
 
-            // Copy scanning script
+        try {
             $this->copyScanningScript();
+        } catch (\Exception $e) {
+            Log::warning('Failed to copy scanning script (non-critical): '.$e->getMessage());
+        }
 
+        try {
             // Enable and start service
             Log::info('Enabling and starting Trivy database update service');
             $process = new \Symfony\Component\Process\Process(['systemctl', 'daemon-reload']);
@@ -474,17 +488,26 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
 
             $process = new \Symfony\Component\Process\Process(['systemctl', 'start', 'trivy-db-update.timer']);
             $process->run();
+        } catch (\Exception $e) {
+            Log::warning('Failed to enable/start systemd services (non-critical): '.$e->getMessage());
+        }
 
+        try {
             // Initial database download
             Log::info('Downloading vulnerability database (this may take a while)');
             $process = new \Symfony\Component\Process\Process(['trivy', 'image', '--download-db-only']);
             $process->setTimeout(600); // 10 minutes for initial database download
             $process->run();
-
-            return true;
         } catch (\Exception $e) {
-            Log::error('Error installing Trivy: '.$e->getMessage());
+            Log::warning('Failed to download vulnerability database (non-critical): '.$e->getMessage());
+        }
 
+        // Final verification: Check if Trivy is actually installed
+        if ($this->isInstalled()) {
+            Log::info('Trivy installation completed successfully');
+            return true;
+        } else {
+            Log::error('Trivy installation verification failed - package not detected');
             return false;
         }
     }
@@ -571,6 +594,49 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
     public function setConfig(array $config): void
     {
         $this->config = $config;
+    }
+
+    /**
+     * Run service-specific audit checks.
+     * Perform Trivy vulnerability scanning during the audit process.
+     */
+    protected function performServiceSpecificAuditChecks($output = null): array
+    {
+        if (! $this->isEnabled() || ! $this->isInstalled() || ! $this->isConfigured()) {
+            return [];
+        }
+
+        if ($output) {
+            $output->writeln('  <fg=yellow>🔍 Scanning dependencies and system packages for vulnerabilities...</>');
+        }
+
+        // Perform the actual vulnerability scan
+        $scanResults = $this->scanDependencies();
+
+        // Convert scan results to SecurityEventData objects
+        $securityEvents = [];
+        foreach ($scanResults as $result) {
+            $securityEvents[] = $this->resultToSecurityEventData(array_merge($result, [
+                'timestamp' => now(),
+                'scan_id' => null,
+            ]));
+        }
+
+        if ($output) {
+            if (empty($securityEvents)) {
+                $output->writeln('  <fg=green>✅ No vulnerabilities detected</>');
+            } else {
+                $severityCounts = array_count_values(array_column($scanResults, 'severity'));
+                $criticalHigh = ($severityCounts['CRITICAL'] ?? 0) + ($severityCounts['HIGH'] ?? 0);
+                if ($criticalHigh > 0) {
+                    $output->writeln('  <fg=red>⚠️  '.count($securityEvents)." vulnerabilities detected ($criticalHigh critical/high)</>");
+                } else {
+                    $output->writeln('  <fg=yellow>⚠️  '.count($securityEvents).' vulnerabilities detected (medium/low severity)</>');
+                }
+            }
+        }
+
+        return $securityEvents;
     }
 
     /**

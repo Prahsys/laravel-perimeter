@@ -290,10 +290,10 @@ class SystemAuditService extends AbstractSecurityService implements SystemAuditI
         preg_match('/(\d+) upgraded, (\d+) newly installed/', $output, $matches);
         $allUpdates = isset($matches[1]) ? (int) $matches[1] : 0;
 
-        if ($securityUpdates === 0 && strpos($output, '0 upgraded, 0 newly installed') !== false) {
+        if ($securityUpdates === 0 && $allUpdates === 0) {
             $this->output->success('No security updates needed');
             $this->output->writeln('System packages are up-to-date with security patches.');
-        } else {
+        } elseif ($securityUpdates > 0 || $allUpdates > 0) {
             // Get details of the security updates
             $details = [];
             if ($securityUpdates > 0) {

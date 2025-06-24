@@ -37,6 +37,8 @@ class PerimeterReport extends Command
      */
     public function handle()
     {
+        $this->info('🚀 Starting security report generation...');
+
         // Get report parameters
         $scanId = $this->option('scan-id');
         $from = $this->option('from');
@@ -46,6 +48,8 @@ class PerimeterReport extends Command
         $format = $this->option('format');
         $output = $this->option('output');
         $scansOnly = $this->option('scans-only');
+
+        $this->info('📋 Report parameters parsed successfully');
 
         // If showing scans only, display scan summary and return
         if ($scansOnly) {
@@ -62,10 +66,13 @@ class PerimeterReport extends Command
         }
 
         // Regular event reporting flow
+        $this->info('🔍 Initializing report builder...');
         $report = Perimeter::report();
 
         // Set up the report with the service manager for more extensibility
+        $this->info('🔧 Loading service manager...');
         $serviceManager = app()->make('Prahsys\Perimeter\Services\ServiceManager');
+        $this->info('🔗 Connecting service manager to report...');
         $report->setServiceManager($serviceManager);
 
         if ($from) {
@@ -87,8 +94,27 @@ class PerimeterReport extends Command
         // Set the output format
         $report->format($format === 'text' ? 'json' : $format);
 
-        // Get the report data
-        $events = $report->get();
+        // Get the report data from database only (no live scanning)
+        $this->info('📊 Retrieving security events from database...');
+        $eventClass = config('perimeter.storage.models.security_event', \Prahsys\Perimeter\Models\SecurityEvent::class);
+        $query = $eventClass::query();
+
+        // Apply filters if provided
+        if ($from) {
+            $query->where('timestamp', '>=', \Carbon\Carbon::parse($from));
+        }
+        if ($to) {
+            $query->where('timestamp', '<=', \Carbon\Carbon::parse($to));
+        }
+        if ($type) {
+            $query->whereIn('type', explode(',', $type));
+        }
+        if ($severity) {
+            $query->whereIn('severity', explode(',', $severity));
+        }
+
+        $events = $query->orderBy('timestamp', 'desc')->get()->toArray();
+        $this->info('✅ Security events retrieved successfully');
 
         // Export to file if output path is specified
         if ($output && $format !== 'text') {
@@ -122,199 +148,14 @@ class PerimeterReport extends Command
     protected function displayTextReport(array $events): void
     {
         if (empty($events)) {
-            $this->info('No security events found matching the criteria.');
-            $this->newLine();
-            $this->line('This is good news! No security issues were detected during the scan.');
+            $this->line('No security issues were detected during recent scans.');
             $this->newLine();
 
-            // Get service manager to display available security services
-            $serviceManager = app()->make('Prahsys\Perimeter\Services\ServiceManager');
-
-            // Display detailed audit information
-            $this->output->title('Detailed Audit Information');
+            $this->line('To perform a new security scan, run:');
+            $this->line('  <fg=yellow>php artisan perimeter:audit</>');
             $this->newLine();
-
-            // Display information about scanner services
-            $scanners = $serviceManager->getScanners();
-            if ($scanners->isNotEmpty()) {
-                $this->line('<fg=green>Malware Scanners</>');
-                $displayedServices = [];
-                foreach ($scanners as $scanner) {
-                    $serviceName = class_basename($scanner);
-                    if (in_array($serviceName, $displayedServices)) {
-                        continue;
-                    }
-                    $displayedServices[] = $serviceName;
-
-                    $configKey = strtolower(preg_replace('/Service$/', '', $serviceName));
-
-                    if ($scanner->isEnabled() && $scanner->isInstalled()) {
-                        // Try to get version information
-                        $versionCmd = $this->getVersionCommand($configKey);
-                        $version = 'Version information not available';
-
-                        if ($versionCmd) {
-                            $process = new \Symfony\Component\Process\Process($versionCmd);
-                            $process->run();
-                            if ($process->isSuccessful()) {
-                                $version = trim($process->getOutput()) ?: $version;
-                            }
-                        }
-
-                        $this->line(" - <fg=white>{$serviceName}</>: <fg=green>Enabled and Installed</>");
-                        $this->line("   • Version: {$version}");
-                        $this->line('   • Scan paths: '.implode(', ', config("perimeter.{$configKey}.scan_paths", [base_path()])));
-                        $this->line('   • Excluded paths: '.implode(', ', config("perimeter.{$configKey}.exclude_patterns", ['vendor/*', 'node_modules/*'])));
-                    } else {
-                        $this->line(" - <fg=white>{$serviceName}</>: <fg=yellow>Not enabled or not installed</>");
-                    }
-                }
-                $this->newLine();
-            }
-
-            // Display information about behavioral monitors
-            $monitors = $serviceManager->getMonitors();
-            if ($monitors->isNotEmpty()) {
-                $this->line('<fg=green>Behavioral Monitors</>');
-                $displayedServices = [];
-                foreach ($monitors as $monitor) {
-                    $serviceName = class_basename($monitor);
-                    if (in_array($serviceName, $displayedServices)) {
-                        continue;
-                    }
-                    $displayedServices[] = $serviceName;
-
-                    $configKey = strtolower(preg_replace('/Service$/', '', $serviceName));
-
-                    if ($monitor->isEnabled() && $monitor->isInstalled()) {
-                        // Try to get version information
-                        $versionCmd = $this->getVersionCommand($configKey);
-                        $version = 'Version information not available';
-
-                        if ($versionCmd) {
-                            $process = new \Symfony\Component\Process\Process($versionCmd);
-                            $process->run();
-                            if ($process->isSuccessful()) {
-                                $version = trim($process->getOutput()) ?: $version;
-                            }
-                        }
-
-                        $this->line(" - <fg=white>{$serviceName}</>: <fg=green>Enabled and Installed</>");
-                        $this->line("   • Version: {$version}");
-                        $this->line('   • Rules enabled: '.count(config("perimeter.{$configKey}.custom_rules", [])));
-                        $this->line('   • Log path: '.config("perimeter.{$configKey}.log_path", "/var/log/{$configKey}.log"));
-                    } else {
-                        $this->line(" - <fg=white>{$serviceName}</>: <fg=yellow>Not enabled or not installed</>");
-                    }
-                }
-                $this->newLine();
-            }
-
-            // Display information about vulnerability scanners
-            $vulnScanners = $serviceManager->getVulnerabilityScanners();
-            if ($vulnScanners->isNotEmpty()) {
-                $this->line('<fg=green>Vulnerability Scanners</>');
-                $displayedServices = [];
-                foreach ($vulnScanners as $scanner) {
-                    $serviceName = class_basename($scanner);
-                    if (in_array($serviceName, $displayedServices)) {
-                        continue;
-                    }
-                    $displayedServices[] = $serviceName;
-
-                    $configKey = strtolower(preg_replace('/Service$/', '', $serviceName));
-
-                    if ($scanner->isEnabled() && $scanner->isInstalled()) {
-                        // Try to get version information
-                        $versionCmd = $this->getVersionCommand($configKey);
-                        $version = 'Version information not available';
-
-                        if ($versionCmd) {
-                            $process = new \Symfony\Component\Process\Process($versionCmd);
-                            $process->run();
-                            if ($process->isSuccessful()) {
-                                $version = trim($process->getOutput()) ?: $version;
-                            }
-                        }
-
-                        $this->line(" - <fg=white>{$serviceName}</>: <fg=green>Enabled and Installed</>");
-                        $this->line("   • Version: {$version}");
-                        $this->line('   • Scan paths: '.implode(', ', config("perimeter.{$configKey}.scan_paths", [
-                            base_path('composer.lock'),
-                            base_path('package-lock.json'),
-                        ])));
-                        $this->line('   • Severity threshold: '.config("perimeter.{$configKey}.severity_threshold", 'MEDIUM'));
-                    } else {
-                        $this->line(" - <fg=white>{$serviceName}</>: <fg=yellow>Not enabled or not installed</>");
-                    }
-                }
-                $this->newLine();
-            }
-
-            // Display information about firewalls
-            $firewalls = $serviceManager->getFirewalls();
-            if ($firewalls->isNotEmpty()) {
-                $this->line('<fg=green>Firewalls</>');
-                $displayedServices = [];
-                foreach ($firewalls as $firewall) {
-                    $serviceName = class_basename($firewall);
-                    if (in_array($serviceName, $displayedServices)) {
-                        continue;
-                    }
-                    $displayedServices[] = $serviceName;
-
-                    $configKey = strtolower(preg_replace('/Service$/', '', $serviceName));
-
-                    if ($firewall->isEnabled() && $firewall->isInstalled()) {
-                        $status = $firewall->getStatus();
-
-                        $this->line(" - <fg=white>{$serviceName}</>: <fg=green>Enabled and Installed</>");
-                        $this->line('   • Status: '.($status->isRunning() ? 'Running' : 'Not running'));
-                        $this->line('   • Rules: '.count($status->details['rules'] ?? []));
-                    } else {
-                        $this->line(" - <fg=white>{$serviceName}</>: <fg=yellow>Not enabled or not installed</>");
-                    }
-                }
-                $this->newLine();
-            }
-
-            // Display information about intrusion prevention
-            $ips = $serviceManager->getIntrusionPreventionServices();
-            if ($ips->isNotEmpty()) {
-                $this->line('<fg=green>Intrusion Prevention</>');
-                $displayedServices = [];
-                foreach ($ips as $service) {
-                    $serviceName = class_basename($service);
-                    if (in_array($serviceName, $displayedServices)) {
-                        continue;
-                    }
-                    $displayedServices[] = $serviceName;
-
-                    $configKey = strtolower(preg_replace('/Service$/', '', $serviceName));
-
-                    if ($service->isEnabled() && $service->isInstalled()) {
-                        $status = $service->getStatus();
-
-                        $this->line(" - <fg=white>{$serviceName}</>: <fg=green>Enabled and Installed</>");
-                        $this->line('   • Status: '.($status->isRunning() ? 'Running' : 'Not running'));
-
-                        if (method_exists($service, 'getJails')) {
-                            $jails = $service->getJails();
-                            $this->line('   • Active jails: '.implode(', ', $jails));
-                        }
-                    } else {
-                        $this->line(" - <fg=white>{$serviceName}</>: <fg=yellow>Not enabled or not installed</>");
-                    }
-                }
-                $this->newLine();
-            }
-
-            $lastScan = now()->toDateTimeString();
-            $this->line('<fg=green>Last scan completed:</> '.$lastScan);
-            $this->line('All security tools reported no findings. Your system appears secure.');
-            $this->newLine();
-            $this->line('To verify the tools are properly configured, run: <fg=yellow>php artisan perimeter:health</>');
-            $this->line('To check tool-specific logs, run: <fg=yellow>php artisan perimeter:monitor</>');
+            $this->line('To check service health, run:');
+            $this->line('  <fg=yellow>php artisan perimeter:health</>');
 
             return;
         }
