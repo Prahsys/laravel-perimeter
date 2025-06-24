@@ -398,6 +398,49 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
     protected ?BackgroundProcessManager $processManager = null;
 
     /**
+     * Run service-specific audit checks.
+     * Perform ClamAV scanning during the audit process.
+     */
+    protected function performServiceSpecificAuditChecks($output = null): array
+    {
+        if (!$this->isEnabled() || !$this->isInstalled() || !$this->isConfigured()) {
+            return [];
+        }
+
+        // Get scan configuration
+        $scanPaths = $this->config['scan_paths'] ?? [base_path()];
+        $excludePatterns = $this->config['exclude_patterns'] ?? [];
+
+        if ($output) {
+            $output->writeln("  <fg=yellow>🔍 Scanning " . count($scanPaths) . " paths for malware...</>");
+        }
+
+        // Perform the actual scan
+        $scanResults = $this->scanPaths($scanPaths, $excludePatterns);
+
+        // Convert scan results to SecurityEventData objects
+        $securityEvents = [];
+        foreach ($scanResults as $result) {
+            $securityEvents[] = $this->resultToSecurityEventData([
+                'timestamp' => now(),
+                'threat' => $result['threat'] ?? 'Unknown threat',
+                'file' => $result['file'] ?? 'Unknown file',
+                'scan_id' => null,
+            ]);
+        }
+
+        if ($output) {
+            if (empty($securityEvents)) {
+                $output->writeln("  <fg=green>✅ No malware detected</>");
+            } else {
+                $output->writeln("  <fg=red>⚠️  " . count($securityEvents) . " threats detected</>");
+            }
+        }
+
+        return $securityEvents;
+    }
+
+    /**
      * Recent events storage
      */
     protected array $recentEvents = [];

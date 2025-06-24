@@ -131,9 +131,9 @@ class PerimeterAudit extends Command
         $this->line('Behavioral Analysis: 0 issues found');
         $this->newLine();
 
-        // Get security events and display in tables by type
-        $reportBuilder = Perimeter::report()->setServiceManager($serviceManager);
-        $events = $reportBuilder->get();
+        // Get security events from database only (no live scanning)
+        $eventClass = config('perimeter.storage.models.security_event', \Prahsys\Perimeter\Models\SecurityEvent::class);
+        $events = $eventClass::where('created_at', '>=', now()->subHour())->get()->toArray();
 
         // Filter by scan ID if specified
         $scanId = $this->option('scan-id');
