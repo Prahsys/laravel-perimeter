@@ -72,6 +72,8 @@ class PerimeterAudit extends Command
             }
         }
 
+        // Show progress for final audit processing
+        $this->info('🔍 Processing audit results and generating summary...');
         $auditResult = Perimeter::audit();
         $format = $this->option('format');
 
