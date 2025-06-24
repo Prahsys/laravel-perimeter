@@ -87,15 +87,15 @@ class ServiceStatusData extends Data
             return false;
         }
 
+        // If functional status is explicitly set, use that instead of basic requirements
+        // This allows services to be healthy even when not traditionally "configured"
+        if ($this->functional !== null) {
+            return $this->functional;
+        }
+
         // Basic requirements: installed and configured
         if (! $this->installed || ! $this->configured) {
             return false;
-        }
-
-        // If functional status is explicitly set, use that instead of running status
-        // This allows services like ClamAV to be healthy in direct mode even when daemon isn't running
-        if ($this->functional !== null) {
-            return $this->functional;
         }
 
         // Default behavior: require daemon to be running
