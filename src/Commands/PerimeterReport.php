@@ -135,6 +135,7 @@ class PerimeterReport extends Command
             $this->newLine();
 
             // Display information about scanner services
+            $this->info('🔍 Analyzing scanner services...');
             $scanners = $serviceManager->getScanners();
             if ($scanners->isNotEmpty()) {
                 $this->line('<fg=green>Malware Scanners</>');
@@ -165,6 +166,7 @@ class PerimeterReport extends Command
             }
 
             // Display information about behavioral monitors
+            $this->info('🔍 Analyzing behavioral monitors...');
             $monitors = $serviceManager->getMonitors();
             if ($monitors->isNotEmpty()) {
                 $this->line('<fg=green>Behavioral Monitors</>');
@@ -195,6 +197,7 @@ class PerimeterReport extends Command
             }
 
             // Display information about vulnerability scanners
+            $this->info('🔍 Analyzing vulnerability scanners...');
             $vulnScanners = $serviceManager->getVulnerabilityScanners();
             if ($vulnScanners->isNotEmpty()) {
                 $this->line('<fg=green>Vulnerability Scanners</>');
@@ -228,6 +231,7 @@ class PerimeterReport extends Command
             }
 
             // Display information about firewalls
+            $this->info('🔍 Analyzing firewalls...');
             $firewalls = $serviceManager->getFirewalls();
             if ($firewalls->isNotEmpty()) {
                 $this->line('<fg=green>Firewalls</>');
@@ -255,6 +259,7 @@ class PerimeterReport extends Command
             }
 
             // Display information about intrusion prevention
+            $this->info('🔍 Analyzing intrusion prevention...');
             $ips = $serviceManager->getIntrusionPreventionServices();
             if ($ips->isNotEmpty()) {
                 $this->line('<fg=green>Intrusion Prevention</>');
