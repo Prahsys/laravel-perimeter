@@ -270,9 +270,11 @@ class Fail2banService extends AbstractSecurityService implements IntrusionPreven
             // Final verification: Check if Fail2Ban is actually installed
             if ($this->isInstalled()) {
                 Log::info('Fail2Ban installation completed successfully');
+
                 return true;
             } else {
                 Log::error('Fail2Ban installation verification failed - package not detected');
+
                 return false;
             }
         } catch (\Exception $e) {
@@ -281,6 +283,7 @@ class Fail2banService extends AbstractSecurityService implements IntrusionPreven
             // Even if there's an exception, check if the package is installed
             if ($this->isInstalled()) {
                 Log::warning('Exception occurred but Fail2Ban package is installed - considering installation successful');
+
                 return true;
             }
 

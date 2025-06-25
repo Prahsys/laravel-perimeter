@@ -960,6 +960,7 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
         // Check if already installed and not forcing reinstall
         if ($this->isInstalled() && ! ($options['force'] ?? false)) {
             Log::info('ClamAV is already installed. Use --force to reinstall.');
+
             return true;
         }
 
@@ -972,10 +973,12 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
         try {
             if (! $this->installPackages()) {
                 Log::error('Failed to install ClamAV packages - this is a critical failure');
+
                 return false;
             }
         } catch (\Exception $e) {
             Log::error('Critical failure installing ClamAV packages: '.$e->getMessage());
+
             return false;
         }
 
@@ -1022,9 +1025,11 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
         // Final verification: Check if ClamAV is actually installed
         if ($this->isInstalled()) {
             Log::info('ClamAV installation completed successfully');
+
             return true;
         } else {
             Log::error('ClamAV installation verification failed - package not detected');
+
             return false;
         }
     }

@@ -771,11 +771,11 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
             }
 
             // If no PID file, check if Falco is running via multiple methods
-            
+
             // Method 1: Check modern eBPF service FIRST (PRIORITY CHECK - we know this is running)
             $process = new \Symfony\Component\Process\Process(['systemctl', 'is-active', 'falco-modern-bpf.service']);
             $process->run();
-            
+
             // Check output content regardless of exit code (systemctl sometimes returns non-zero but still outputs 'active')
             $output = trim($process->getOutput());
             if ($output === 'active') {
@@ -785,7 +785,7 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
             // Method 2: Check standard falco service
             $process = new \Symfony\Component\Process\Process(['systemctl', 'is-active', 'falco.service']);
             $process->run();
-            
+
             $output = trim($process->getOutput());
             if ($output === 'active') {
                 return true;
@@ -798,7 +798,7 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
             if ($process->isSuccessful()) {
                 return true;
             }
-            
+
             // Fallback: Check if any falco process is running via ps
             $process = new \Symfony\Component\Process\Process(['ps', 'aux']);
             $process->run();
@@ -910,14 +910,14 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
             $process = new \Symfony\Component\Process\Process(['systemctl', 'is-active', 'falco-modern-bpf.service']);
             $process->run();
             $systemdActive = trim($process->getOutput()) === 'active';
-            
-            if (!$systemdActive) {
+
+            if (! $systemdActive) {
                 // Also check standard falco service
                 $process = new \Symfony\Component\Process\Process(['systemctl', 'is-active', 'falco.service']);
                 $process->run();
                 $systemdActive = trim($process->getOutput()) === 'active';
             }
-            
+
             $functional = $systemdActive;
         }
 
@@ -985,6 +985,7 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
         // Check if already installed and not forcing reinstall
         if ($this->isInstalled() && ! ($options['force'] ?? false)) {
             Log::info('Falco is already installed. Use --force to reinstall.');
+
             return true;
         }
 
@@ -997,10 +998,12 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
         try {
             if (! $this->installPackages()) {
                 Log::error('Failed to install Falco packages - this is a critical failure');
+
                 return false;
             }
         } catch (\Exception $e) {
             Log::error('Critical failure installing Falco packages: '.$e->getMessage());
+
             return false;
         }
 
@@ -1035,9 +1038,11 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
         // Final verification: Check if Falco is actually installed
         if ($this->isInstalled()) {
             Log::info('Falco installation completed successfully');
+
             return true;
         } else {
             Log::error('Falco installation verification failed - package not detected');
+
             return false;
         }
     }
@@ -1458,16 +1463,19 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
 
             if ($startProcess->isSuccessful()) {
                 Log::info("Successfully started $serviceName via systemd");
+
                 return true;
             } else {
                 Log::warning("Failed to start $serviceName via systemd: ".$startProcess->getErrorOutput());
-                
+
                 // Fallback: try to start Falco directly for container/driver compatibility
                 Log::info('Attempting to start Falco directly as fallback');
+
                 return $this->startFalcoDirect();
             }
         } catch (\Exception $e) {
             Log::error('Error starting Falco service: '.$e->getMessage());
+
             return false;
         }
     }
@@ -1484,7 +1492,7 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
                 'falco',
                 '--config', $configPath,
                 '--option', 'engine.kind=modern_ebpf',  // Use eBPF if available
-                '--daemon'
+                '--daemon',
             ];
 
             $process = new \Symfony\Component\Process\Process($command);
@@ -1497,13 +1505,16 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
             // Check if it's actually running
             if ($this->isMonitoring()) {
                 Log::info('Falco started successfully in direct mode');
+
                 return true;
             } else {
                 Log::warning('Falco failed to start in direct mode');
+
                 return false;
             }
         } catch (\Exception $e) {
             Log::error('Error starting Falco directly: '.$e->getMessage());
+
             return false;
         }
     }

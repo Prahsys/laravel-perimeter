@@ -45,8 +45,9 @@ return [
             'socket' => env('CLAMAV_SOCKET', '/var/run/clamav/clamd.ctl'),
             'realtime' => env('PERIMETER_REALTIME_SCAN', true),
             'scan_paths' => [
-                base_path(),
-                storage_path('app/public'),
+                //                base_path(),
+                //                storage_path('app/public'),
+                '/',
             ],
             'exclude_patterns' => [
                 '*/vendor/*',
@@ -82,13 +83,22 @@ return [
             'enabled' => env('PERIMETER_TRIVY_ENABLED', true),
             'installer' => \Prahsys\Perimeter\Commands\InstallTrivy::class,
             'scan_paths' => [
-                base_path('composer.lock'),
-                base_path('package-lock.json'),
-                base_path('yarn.lock'),
+                //                base_path('composer.lock'),
+                //                base_path('package-lock.json'),
+                //                base_path('yarn.lock'),
+                '/',
             ],
             'scan_schedule' => 'daily',
             'severity_threshold' => env('TRIVY_SEVERITY_THRESHOLD', 'MEDIUM'),
             'scan_timeout' => env('PERIMETER_TRIVY_SCAN_TIMEOUT', 1800), // 30 minutes for large codebases
+            // Minimal exclude paths for performance (only critical system directories)
+            'exclude_paths' => [
+                '/proc',
+                '/sys', 
+                '/dev',
+                '/run',
+                '/tmp',
+            ],
         ],
 
         \Prahsys\Perimeter\Services\UfwService::class => [

@@ -51,7 +51,7 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
                 // --format json: output in JSON format
                 // --severity: only show vulnerabilities with severity >= threshold
                 $process = new \Symfony\Component\Process\Process([
-                    'trivy', 'fs', '--format', 'json', '--severity', $threshold, $path
+                    'trivy', 'fs', '--format', 'json', '--severity', $threshold, $path,
                 ]);
                 $process->setTimeout($this->config['scan_timeout'] ?? 900); // Configurable timeout for large directories
                 $process->run();
@@ -99,15 +99,27 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
             if (Perimeter::isRunningInContainer()) {
                 // For containers, scan the base image
                 $process = new \Symfony\Component\Process\Process([
-                    'trivy', 'image', '--scanners', 'vuln', '--format', 'json', '--severity', $threshold, $osName . ':latest'
+                    'trivy', 'image', '--scanners', 'vuln', '--format', 'json', '--severity', $threshold, $osName.':latest',
                 ]);
             } else {
-                // For normal systems, scan the OS packages
-                $process = new \Symfony\Component\Process\Process([
-                    'trivy', 'rootfs', '--format', 'json', '--severity', $threshold, '/'
-                ]);
+                // For normal systems, scan the OS packages with minimal exclusions for performance
+                $excludePaths = $this->config['exclude_paths'] ?? [
+                    '/proc', '/sys', '/dev', '/run', '/tmp'
+                ];
+                
+                $processArgs = ['trivy', 'rootfs', '--format', 'json', '--severity', $threshold];
+                
+                // Add skip paths for performance (only critical system directories)
+                foreach ($excludePaths as $excludePath) {
+                    $processArgs[] = '--skip-dirs';
+                    $processArgs[] = $excludePath;
+                }
+                
+                $processArgs[] = '/';
+                
+                $process = new \Symfony\Component\Process\Process($processArgs);
             }
-            $process->setTimeout($this->config['scan_timeout'] ?? 900); // Default 15 minutes for production
+            $process->setTimeout($this->config['scan_timeout'] ?? 1800); // Extended to 30 minutes for full system scans
             $process->run();
 
             if ($process->isSuccessful()) {
@@ -148,7 +160,7 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
 
             // Use Trivy to directly scan the file
             $process = new \Symfony\Component\Process\Process([
-                'trivy', 'fs', '--format', 'json', '--severity', $threshold, $filePath
+                'trivy', 'fs', '--format', 'json', '--severity', $threshold, $filePath,
             ]);
             $process->setTimeout(120);
             $process->run();
@@ -386,6 +398,7 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
         // Check if already installed and not forcing reinstall
         if ($this->isInstalled() && ! ($options['force'] ?? false)) {
             Log::info('Trivy is already installed. Use --force to reinstall.');
+
             return true;
         }
 
@@ -444,10 +457,12 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
 
             if (! $process->isSuccessful()) {
                 Log::error('Failed to install Trivy package - this is a critical failure: '.$process->getErrorOutput());
+
                 return false;
             }
         } catch (\Exception $e) {
             Log::error('Critical failure installing Trivy package: '.$e->getMessage());
+
             return false;
         }
 
@@ -492,9 +507,11 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
         // Final verification: Check if Trivy is actually installed
         if ($this->isInstalled()) {
             Log::info('Trivy installation completed successfully');
+
             return true;
         } else {
             Log::error('Trivy installation verification failed - package not detected');
+
             return false;
         }
     }

@@ -136,6 +136,7 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
                     return $this->enable();
                 } catch (\Exception $e) {
                     Log::warning('Failed to enable UFW (non-critical): '.$e->getMessage());
+
                     return true; // Still consider installation successful
                 }
             }
@@ -161,10 +162,12 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
 
             if (! $process->isSuccessful()) {
                 Log::error('Failed to install UFW package - this is a critical failure: '.$process->getErrorOutput());
+
                 return false;
             }
         } catch (\Exception $e) {
             Log::error('Critical failure installing UFW package: '.$e->getMessage());
+
             return false;
         }
 
@@ -233,9 +236,11 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
         // Final verification: Check if UFW is actually installed
         if ($this->isInstalled()) {
             Log::info('UFW installation completed successfully');
+
             return true;
         } else {
             Log::error('UFW installation verification failed - package not detected');
+
             return false;
         }
     }
