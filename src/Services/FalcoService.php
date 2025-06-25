@@ -902,6 +902,25 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
             'recent_events' => $recentEvents,
         ];
 
+        // Falco can be functional even when not actively monitoring (runtime security is optional)
+        // Consider it functional if installed, configured and systemd service is running
+        $functional = null;
+        if ($enabled && $installed && $configured) {
+            // Check if systemd service is running even if isMonitoring() returns false
+            $process = new \Symfony\Component\Process\Process(['systemctl', 'is-active', 'falco-modern-bpf.service']);
+            $process->run();
+            $systemdActive = trim($process->getOutput()) === 'active';
+            
+            if (!$systemdActive) {
+                // Also check standard falco service
+                $process = new \Symfony\Component\Process\Process(['systemctl', 'is-active', 'falco.service']);
+                $process->run();
+                $systemdActive = trim($process->getOutput()) === 'active';
+            }
+            
+            $functional = $systemdActive;
+        }
+
         return new \Prahsys\Perimeter\Data\ServiceStatusData(
             name: 'falco',
             enabled: $enabled,
@@ -909,7 +928,8 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
             configured: $configured,
             running: $running,
             message: $message,
-            details: $details
+            details: $details,
+            functional: $functional
         );
     }
 

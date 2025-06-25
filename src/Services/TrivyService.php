@@ -50,13 +50,9 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
                 // Use Trivy to scan the file or directory
                 // --format json: output in JSON format
                 // --severity: only show vulnerabilities with severity >= threshold
-                $scanCommand = sprintf(
-                    'trivy fs --format json --severity %s %s',
-                    escapeshellarg($threshold),
-                    escapeshellarg($path)
-                );
-
-                $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
+                $process = new \Symfony\Component\Process\Process([
+                    'trivy', 'fs', '--format', 'json', '--severity', $threshold, $path
+                ]);
                 $process->setTimeout($this->config['scan_timeout'] ?? 900); // Configurable timeout for large directories
                 $process->run();
 
@@ -102,20 +98,15 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
             // Use appropriate scanning command based on environment
             if (Perimeter::isRunningInContainer()) {
                 // For containers, scan the base image
-                $scanCommand = sprintf(
-                    'trivy image --scanners vuln --format json --severity %s %s:latest',
-                    escapeshellarg($threshold),
-                    escapeshellarg($osName)
-                );
+                $process = new \Symfony\Component\Process\Process([
+                    'trivy', 'image', '--scanners', 'vuln', '--format', 'json', '--severity', $threshold, $osName . ':latest'
+                ]);
             } else {
                 // For normal systems, scan the OS packages
-                $scanCommand = sprintf(
-                    'trivy rootfs --format json --severity %s /',
-                    escapeshellarg($threshold)
-                );
+                $process = new \Symfony\Component\Process\Process([
+                    'trivy', 'rootfs', '--format', 'json', '--severity', $threshold, '/'
+                ]);
             }
-
-            $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
             $process->setTimeout($this->config['scan_timeout'] ?? 900); // Default 15 minutes for production
             $process->run();
 
@@ -156,13 +147,9 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
             $threshold = $this->config['severity_threshold'] ?? 'MEDIUM';
 
             // Use Trivy to directly scan the file
-            $scanCommand = sprintf(
-                'trivy fs --format json --severity %s %s',
-                escapeshellarg($threshold),
-                escapeshellarg($filePath)
-            );
-
-            $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
+            $process = new \Symfony\Component\Process\Process([
+                'trivy', 'fs', '--format', 'json', '--severity', $threshold, $filePath
+            ]);
             $process->setTimeout(120);
             $process->run();
 
