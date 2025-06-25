@@ -83,17 +83,17 @@ return [
             'enabled' => env('PERIMETER_TRIVY_ENABLED', true),
             'installer' => \Prahsys\Perimeter\Commands\InstallTrivy::class,
             'scan_paths' => [
-                //                base_path('composer.lock'),
-                //                base_path('package-lock.json'),
-                //                base_path('yarn.lock'),
-                '/',
+                base_path('composer.lock'),
+                base_path('package-lock.json'),
+                base_path('yarn.lock'),
+//              '/',
             ],
             'severity_threshold' => env('TRIVY_SEVERITY_THRESHOLD', 'MEDIUM'),
             'scan_timeout' => env('PERIMETER_TRIVY_SCAN_TIMEOUT', 1800), // 30 minutes for large codebases
-            // Minimal exclude paths for performance (only critical system directories)
+            // Exclude paths for performance
             'exclude_paths' => [
                 '/proc',
-                '/sys', 
+                '/sys',
                 '/dev',
                 '/run',
                 '/tmp',
@@ -104,12 +104,10 @@ return [
             'enabled' => env('PERIMETER_UFW_ENABLED', true),
             'installer' => \Prahsys\Perimeter\Commands\InstallUfw::class,
             'log_path' => env('UFW_LOG_PATH', '/var/log/ufw.log'),
-            // Ports with any type of access rule (open or restricted)
-            'expected_ports' => ! empty(env('PERIMETER_EXPECTED_PORTS')) ? explode('|', env('PERIMETER_EXPECTED_PORTS')) : [],
             // Ports that can be completely open to the internet
-            'public_ports' => ! empty(env('PERIMETER_PUBLIC_PORTS')) ? explode('|', env('PERIMETER_PUBLIC_PORTS')) : [],
+            'public_ports' => ! empty(env('PERIMETER_PUBLIC_PORTS')) ? explode('|', env('PERIMETER_PUBLIC_PORTS')) : ['80', '443'],
             // Ports that should be restricted to specific IPs or localhost
-            'restricted_ports' => ! empty(env('PERIMETER_RESTRICTED_PORTS')) ? explode('|', env('PERIMETER_RESTRICTED_PORTS')) : [],
+            'restricted_ports' => ! empty(env('PERIMETER_RESTRICTED_PORTS')) ? explode('|', env('PERIMETER_RESTRICTED_PORTS')) : ['22'],
         ],
 
         \Prahsys\Perimeter\Services\Fail2banService::class => [

@@ -210,6 +210,13 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
         }
 
         try {
+            // Set up sudo permissions for UFW status commands
+            $this->setupSudoPermissions();
+        } catch (\Exception $e) {
+            Log::warning('Failed to setup sudo permissions (non-critical): '.$e->getMessage());
+        }
+
+        try {
             // Enable and start service
             Log::info('Enabling and starting UFW service');
             $process = new Process(['systemctl', 'daemon-reload']);
@@ -402,122 +409,79 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
     }
 
     /**
-     * Check for port access issues based on configured expected/public/restricted ports.
+     * Check for port access issues based on configured public/restricted ports.
      *
      * @return array Port check results with any issues found
      */
     public function checkPorts(): array
     {
         // Get port configuration
-        $expectedPorts = $this->config['expected_ports'] ?? [];
         $publicPorts = $this->config['public_ports'] ?? [];
-        $restrictedPortsConfig = $this->config['restricted_ports'] ?? [];
+        $restrictedPorts = $this->config['restricted_ports'] ?? [];
 
         // Convert to arrays if they're not already
-        if (! is_array($expectedPorts)) {
-            $expectedPorts = explode('|', $expectedPorts);
-        }
         if (! is_array($publicPorts)) {
             $publicPorts = explode('|', $publicPorts);
         }
-        if (! is_array($restrictedPortsConfig)) {
-            $restrictedPortsConfig = explode('|', $restrictedPortsConfig);
+        if (! is_array($restrictedPorts)) {
+            $restrictedPorts = explode('|', $restrictedPorts);
         }
 
         // Filter out empty values
-        $expectedPorts = array_filter($expectedPorts);
         $publicPorts = array_filter($publicPorts);
-        $restrictedPortsConfig = array_filter($restrictedPortsConfig);
+        $restrictedPorts = array_filter($restrictedPorts);
 
-        // Check port accessibility
-        $accessiblePorts = [];     // Ports open to external connections
-        $restrictedPorts = [];     // Ports only open to localhost/internal
-        $unexpectedPorts = [];     // Ports not in any expected list
-        $missingPublicPorts = [];  // Public ports that should be open but aren't
-        $exposedPrivatePorts = []; // Restricted ports that shouldn't be publicly accessible
-
-        // Check for open ports
-        $cmd = "ss -tuln | grep LISTEN | awk '{print \$5}' | sed 's/.*://' | sort -u";
-        $process = new Process(['bash', '-c', $cmd]);
-        $process->run();
-
-        if ($process->isSuccessful()) {
-            $openPorts = array_filter(explode("\n", trim($process->getOutput())));
-
-            foreach ($openPorts as $port) {
-                // Check if port is listening only on localhost or externally
-                $cmd = "ss -tuln | grep \":$port\" | grep -v '127.0.0.1\\|::1'";
-                $process = new Process(['bash', '-c', $cmd]);
-                $process->run();
-
-                $isExternallyAccessible = $process->isSuccessful() && ! empty(trim($process->getOutput()));
-
-                if ($isExternallyAccessible) {
-                    $accessiblePorts[] = $port;
-
-                    // Check if this should be a restricted port
-                    if (in_array($port, $restrictedPortsConfig)) {
-                        $exposedPrivatePorts[] = $port;
-                    }
-
-                    // Check if this is an unexpected port
-                    if (! empty($expectedPorts) && ! in_array($port, $expectedPorts)) {
-                        $unexpectedPorts[] = $port;
-                    }
-                } else {
-                    $restrictedPorts[] = $port;
-
-                    // Check if this should be a public port
-                    if (in_array($port, $publicPorts)) {
-                        $missingPublicPorts[] = $port;
-                    }
-                }
-            }
+        // Get UFW rules for analysis
+        $statusResult = $this->getUfwStatusSafely();
+        $ufwRules = [];
+        
+        if ($statusResult['success']) {
+            $ufwStatus = UfwOutputParser::parseStatusOutput($statusResult['output']);
+            $ufwRules = $ufwStatus['rules'] ?? [];
         }
 
-        // Check if any public ports are missing entirely (only if public ports are configured)
-        if (! empty($publicPorts)) {
-            foreach ($publicPorts as $port) {
-                if (! in_array($port, $accessiblePorts) && ! in_array($port, $restrictedPorts)) {
-                    $missingPublicPorts[] = $port;
-                }
-            }
-        }
-
-        // Analyze port status
         $portIssues = [];
 
-        // Check for ports that should be public but aren't
-        if (! empty($publicPorts)) {
-            foreach ($missingPublicPorts as $port) {
-                $portIssues[] = "Port $port should be externally accessible but appears to be restricted or not listening";
+        // Check that only public ports allow all traffic
+        foreach ($publicPorts as $port) {
+            $hasPublicRule = false;
+            foreach ($ufwRules as $rule) {
+                $rulePort = preg_replace('/\/.*$/', '', $rule['port']);
+                if ($rulePort === $port && strtolower($rule['action']) === 'allow') {
+                    if (in_array(strtolower($rule['source']), ['anywhere', 'anywhere (v6)'])) {
+                        $hasPublicRule = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (!$hasPublicRule) {
+                $portIssues[] = "Public port $port should allow all traffic but has no UFW rule allowing 'Anywhere'";
             }
         }
 
-        // Check for unexpected open ports
-        if (! empty($expectedPorts)) {
-            foreach ($unexpectedPorts as $port) {
-                $portIssues[] = "Port $port is externally accessible but not in the expected ports list";
+        // Check that restricted ports are not fully open
+        foreach ($restrictedPorts as $port) {
+            $hasOpenRule = false;
+            foreach ($ufwRules as $rule) {
+                $rulePort = preg_replace('/\/.*$/', '', $rule['port']);
+                if ($rulePort === $port && strtolower($rule['action']) === 'allow') {
+                    if (in_array(strtolower($rule['source']), ['anywhere', 'anywhere (v6)'])) {
+                        $hasOpenRule = true;
+                        break;
+                    }
+                }
             }
-        }
-
-        // Check for private ports that are exposed
-        if (! empty($restrictedPortsConfig)) {
-            foreach ($exposedPrivatePorts as $port) {
-                $portIssues[] = "Port $port should be restricted but is externally accessible";
+            
+            if ($hasOpenRule) {
+                $portIssues[] = "Restricted port $port should not allow all traffic but has UFW rule allowing 'Anywhere'";
             }
         }
 
         return [
             'issues' => $portIssues,
-            'accessible_ports' => $accessiblePorts,
-            'restricted_ports' => $restrictedPorts,
-            'unexpected_ports' => $unexpectedPorts,
-            'missing_public_ports' => $missingPublicPorts,
-            'exposed_private_ports' => $exposedPrivatePorts,
-            'expected_ports_config' => $expectedPorts,
             'public_ports_config' => $publicPorts,
-            'restricted_ports_config' => $restrictedPortsConfig,
+            'restricted_ports_config' => $restrictedPorts,
         ];
     }
 
@@ -580,7 +544,6 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
             }
         }
 
-        $expectedPorts = $this->config['expected_ports'] ?? [];
         $publicPorts = $this->config['public_ports'] ?? [];
         $restrictedPorts = $this->config['restricted_ports'] ?? [];
 
@@ -588,7 +551,6 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
         $details = [
             'rules' => $rules,
             'default_policy' => $defaultPolicy,
-            'expected_ports' => $expectedPorts,
             'public_ports' => $publicPorts,
             'restricted_ports' => $restrictedPorts,
         ];
@@ -681,14 +643,48 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
             // For MVP, just show a simple status message
             $output->writeln('  ⚪ Firewall is active and running');
 
-            // Get basic port info for externally accessible ports
-            $process = new Process(['bash', '-c', "ss -tuln | grep LISTEN | awk '{print \$5}' | sed 's/.*://' | sort -u"]);
-            $process->run();
+            // Check for port configuration issues
+            $portCheck = $this->checkPorts();
+            
+            // Add any port issues to the security issues
+            foreach ($portCheck['issues'] as $issue) {
+                $issues[] = new SecurityEventData(
+                    timestamp: now(),
+                    type: 'firewall',
+                    severity: 'medium',
+                    description: $issue,
+                    location: 'ufw-rules',
+                    user: null,
+                    details: [
+                        'public_ports_config' => $portCheck['public_ports_config'],
+                        'restricted_ports_config' => $portCheck['restricted_ports_config'],
+                    ]
+                );
+            }
 
-            if ($process->isSuccessful() && ! empty(trim($process->getOutput()))) {
-                $openPorts = array_filter(explode("\n", trim($process->getOutput())));
-                if (! empty($openPorts)) {
-                    $output->writeln('  ⚪ Open ports: '.implode(', ', $openPorts));
+            // Get and categorize ports
+            $portStatus = $this->categorizePortsByAccess();
+            
+            if (!empty($portStatus['public'])) {
+                $publicDescriptions = $this->getPortDescriptions($portStatus['public']);
+                $output->writeln('  ⚪ Public services: '.implode(', ', $publicDescriptions));
+            }
+            
+            if (!empty($portStatus['restricted'])) {
+                $restrictedDescriptions = $this->getPortDescriptions($portStatus['restricted']);
+                $output->writeln('  ⚪ Restricted services: '.implode(', ', $restrictedDescriptions));
+            }
+            
+            if (!empty($portStatus['closed'])) {
+                $closedDescriptions = $this->getPortDescriptions($portStatus['closed']);
+                $output->writeln('  ⚪ Closed services: '.implode(', ', $closedDescriptions));
+            }
+            
+            // Show port configuration issues if any
+            if (!empty($portCheck['issues'])) {
+                $output->writeln('  ⚠️  Port configuration issues:');
+                foreach ($portCheck['issues'] as $issue) {
+                    $output->writeln('    - ' . $issue);
                 }
             }
         }
@@ -712,11 +708,24 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
     }
 
     /**
-     * Safely get UFW status without requiring root privileges
+     * Safely get UFW status using sudo (configured during installation)
      */
     protected function getUfwStatusSafely(): array
     {
         try {
+            // Try sudo first (should work if sudoers is configured properly)
+            $process = new Process(['sudo', '-n', 'ufw', 'status', 'verbose']);
+            $process->run();
+
+            if ($process->isSuccessful()) {
+                return [
+                    'success' => true,
+                    'output' => $process->getOutput(),
+                    'error' => null,
+                ];
+            }
+
+            // Fallback: try direct command (might work in some environments)
             $process = new Process(['ufw', 'status', 'verbose']);
             $process->run();
 
@@ -726,13 +735,13 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
                     'output' => $process->getOutput(),
                     'error' => null,
                 ];
-            } else {
-                return [
-                    'success' => false,
-                    'output' => '',
-                    'error' => $process->getErrorOutput(),
-                ];
             }
+
+            return [
+                'success' => false,
+                'output' => '',
+                'error' => $process->getErrorOutput() ?: 'UFW requires root privileges. Run perimeter:install to configure sudo access.',
+            ];
         } catch (\Exception $e) {
             return [
                 'success' => false,
@@ -740,5 +749,189 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
                 'error' => $e->getMessage(),
             ];
         }
+    }
+
+    /**
+     * Categorize ports by their UFW access rules
+     */
+    protected function categorizePortsByAccess(): array
+    {
+        $categorized = [
+            'public' => [],      // ufw allow [port] (allow all)
+            'restricted' => [],  // ufw allow from [ip] to any port [port] (allow specific IPs)
+            'closed' => []       // ufw deny [port] or no rules (deny all) but listening
+        ];
+
+        // Get UFW status with rules
+        $statusResult = $this->getUfwStatusSafely();
+        $ufwRules = [];
+        
+        if ($statusResult['success']) {
+            $ufwStatus = UfwOutputParser::parseStatusOutput($statusResult['output']);
+            $ufwRules = $ufwStatus['rules'] ?? [];
+        }
+
+        // Get all listening ports
+        $process = new Process(['bash', '-c', "ss -tuln | grep LISTEN | awk '{print \$5}' | sed 's/.*://' | sort -u"]);
+        $process->run();
+        
+        $listeningPorts = [];
+        if ($process->isSuccessful() && !empty(trim($process->getOutput()))) {
+            $listeningPorts = array_filter(explode("\n", trim($process->getOutput())));
+            $listeningPorts = array_map('trim', $listeningPorts);
+        }
+
+        // First, categorize UFW rules regardless of whether they're listening
+        foreach ($ufwRules as $rule) {
+            if (strtolower($rule['action']) === 'allow') {
+                // Extract port number from rule (e.g., "22/tcp" -> "22")
+                $rulePort = preg_replace('/\/.*$/', '', $rule['port']);
+                
+                // Check if source is "Anywhere" (public) or specific IP (restricted)
+                if (in_array(strtolower($rule['source']), ['anywhere', 'anywhere (v6)'])) {
+                    if (!in_array($rulePort, $categorized['public'])) {
+                        $categorized['public'][] = $rulePort;
+                    }
+                } else {
+                    if (!in_array($rulePort, $categorized['restricted'])) {
+                        $categorized['restricted'][] = $rulePort;
+                    }
+                }
+            }
+        }
+
+        // Then, add any listening ports that don't have UFW rules to closed
+        foreach ($listeningPorts as $port) {
+            $port = trim($port);
+            
+            // Check if this port is already categorized by UFW rules
+            $isAlreadyCategorized = in_array($port, $categorized['public']) || 
+                                   in_array($port, $categorized['restricted']);
+            
+            if (!$isAlreadyCategorized) {
+                $categorized['closed'][] = $port;
+            }
+        }
+
+        return $categorized;
+    }
+
+    /**
+     * Get descriptive names for common ports
+     */
+    protected function getPortDescriptions(array $ports): array
+    {
+        $commonPorts = [
+            '22' => 'SSH',
+            '53' => 'DNS',
+            '80' => 'HTTP',
+            '443' => 'HTTPS',
+            '3306' => 'MySQL',
+            '5432' => 'PostgreSQL',
+            '6379' => 'Redis',
+            '11211' => 'Memcached',
+            '8080' => 'HTTP-Alt',
+            '8443' => 'HTTPS-Alt',
+            '8461' => 'Custom-App',
+            '8765' => 'Custom-App',
+            '25' => 'SMTP',
+            '110' => 'POP3',
+            '143' => 'IMAP',
+            '993' => 'IMAPS',
+            '995' => 'POP3S',
+            '21' => 'FTP',
+            '23' => 'Telnet',
+            '587' => 'SMTP-MSA',
+            '465' => 'SMTPS',
+            '993' => 'IMAPS',
+            '995' => 'POP3S',
+            '9000' => 'PHP-FPM',
+            '3000' => 'Dev-Server',
+            '5000' => 'Dev-Server',
+            '8000' => 'Dev-Server',
+        ];
+
+        $descriptions = [];
+        foreach ($ports as $port) {
+            $port = trim($port);
+            if (isset($commonPorts[$port])) {
+                $descriptions[] = $port . ' (' . $commonPorts[$port] . ')';
+            } else {
+                $descriptions[] = $port . ' (Unknown)';
+            }
+        }
+
+        return $descriptions;
+    }
+
+    /**
+     * Set up sudo permissions for UFW status commands
+     */
+    protected function setupSudoPermissions(): void
+    {
+        Log::info('Setting up sudo permissions for UFW status commands');
+
+        // Detect the web user (common users: www-data, apache, nginx, forge)
+        $webUser = $this->detectWebUser();
+        
+        if (!$webUser) {
+            Log::warning('Could not detect web user, skipping sudo setup');
+            return;
+        }
+
+        Log::info("Setting up UFW sudo permissions for user: {$webUser}");
+
+        // Create sudoers rule content
+        $sudoersContent = "# Laravel Perimeter UFW permissions\n";
+        $sudoersContent .= "# Allow {$webUser} to run UFW status commands without password\n";
+        $sudoersContent .= "{$webUser} ALL=(root) NOPASSWD: /usr/sbin/ufw status, /usr/sbin/ufw status verbose, /usr/sbin/ufw status numbered\n";
+        $sudoersContent .= "{$webUser} ALL=(root) NOPASSWD: /sbin/ufw status, /sbin/ufw status verbose, /sbin/ufw status numbered\n";
+        $sudoersContent .= "{$webUser} ALL=(root) NOPASSWD: /usr/bin/ufw status, /usr/bin/ufw status verbose, /usr/bin/ufw status numbered\n";
+
+        $sudoersFile = '/etc/sudoers.d/laravel-perimeter-ufw';
+
+        // Write the sudoers file
+        file_put_contents($sudoersFile, $sudoersContent);
+        
+        // Set proper permissions
+        chmod($sudoersFile, 0440);
+
+        // Validate the sudoers file
+        $process = new Process(['visudo', '-c', '-f', $sudoersFile]);
+        $process->run();
+
+        if (!$process->isSuccessful()) {
+            Log::error('Invalid sudoers file syntax, removing file');
+            unlink($sudoersFile);
+            throw new \Exception('Failed to create valid sudoers file');
+        }
+
+        Log::info('Sudo permissions configured successfully');
+    }
+
+    /**
+     * Detect the web user for sudo permissions
+     */
+    protected function detectWebUser(): ?string
+    {
+        $commonWebUsers = ['www-data', 'apache', 'nginx', 'forge'];
+        
+        foreach ($commonWebUsers as $user) {
+            $process = new Process(['id', $user]);
+            $process->run();
+            
+            if ($process->isSuccessful()) {
+                return $user;
+            }
+        }
+
+        // Try to detect from the current process
+        $currentUser = posix_getpwuid(posix_geteuid())['name'] ?? null;
+        
+        if ($currentUser && $currentUser !== 'root') {
+            return $currentUser;
+        }
+
+        return null;
     }
 }

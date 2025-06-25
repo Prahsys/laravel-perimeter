@@ -198,8 +198,8 @@ Perimeter provides comprehensive real-time security monitoring through two prima
 Falco provides kernel-level behavioral analysis to detect suspicious activities:
 
 ```bash
-# Start behavioral monitoring in real-time mode
-php artisan perimeter:monitor --service=falco --realtime
+# Start behavioral monitoring
+php artisan perimeter:monitor --services=falco
 
 # Or run as a system service (recommended for production)
 sudo systemctl enable falco
@@ -219,8 +219,8 @@ Falco monitoring provides:
 ClamAV provides real-time file system monitoring for malware:
 
 ```bash
-# Enable real-time malware monitoring
-php artisan perimeter:monitor --service=clamav --realtime
+# Enable malware monitoring
+php artisan perimeter:monitor --services=clamav
 ```
 
 ClamAV monitoring provides:
@@ -236,7 +236,7 @@ For continuous monitoring in production, use Supervisor:
 
 ```ini
 [program:perimeter-monitor]
-command=php /path/to/your/artisan perimeter:monitor --realtime
+command=php /path/to/your/artisan perimeter:monitor
 autostart=true
 autorestart=true
 user=www-data
@@ -279,7 +279,15 @@ Perimeter::onThreatDetected(function ($securityEvent) {
 Perform a comprehensive security assessment across all protection layers:
 
 ```bash
+# Run audit on all enabled services
 php artisan perimeter:audit
+
+# Run audit only on specific services
+php artisan perimeter:audit --services=clamav,trivy
+php artisan perimeter:audit --services=ufw
+
+# Combine with other options
+php artisan perimeter:audit --services=clamav,falco --format=json
 ```
 
 This command:
@@ -292,7 +300,7 @@ This command:
 
 Options:
 - `--format=json` - Output in JSON format for automated processing
-- `--scan-paths=/custom/path` - Specify custom paths to scan
+- `--services=clamav,trivy` - Run audit only for specific services (comma-separated)
 
 ### Health Check
 
@@ -317,17 +325,16 @@ Monitor security events across all protection layers:
 # Point-in-time check of recent security events
 php artisan perimeter:monitor
 
-# Real-time continuous monitoring
-php artisan perimeter:monitor --realtime
+# Continuous monitoring
+php artisan perimeter:monitor
 
 # Service-specific monitoring
-php artisan perimeter:monitor --service=falco
+php artisan perimeter:monitor --services=falco
 ```
 
 Options:
-- `--realtime` - Run in real-time monitoring mode
-- `--duration=3600` - Duration in seconds for real-time mode (default: 1 hour)
-- `--service=name` - Focus on a specific security service (clamav, falco, fail2ban)
+- `--duration=3600` - Duration in seconds (default: indefinite)
+- `--services=clamav,falco` - Focus on specific security services (comma-separated)
 
 ### Reporting
 
@@ -612,8 +619,8 @@ docker-compose exec app php artisan perimeter:health
 # Run a security audit
 docker-compose exec app php artisan perimeter:audit
 
-# Test real-time monitoring (will run for 60 seconds)
-docker-compose exec app php artisan perimeter:monitor --realtime --duration=60
+# Test monitoring (will run for 60 seconds)
+docker-compose exec app php artisan perimeter:monitor --duration=60
 
 # Generate a security report
 docker-compose exec app php artisan perimeter:report
