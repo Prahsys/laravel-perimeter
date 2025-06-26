@@ -1,0 +1,95 @@
+Wed Jun 25 13:59:14 2025 -> +++ Started at Wed Jun 25 13:59:14 2025
+Wed Jun 25 13:59:14 2025 -> Received 0 file descriptor(s) from systemd.
+Wed Jun 25 13:59:14 2025 -> clamd daemon 0.103.12 (OS: linux-gnu, ARCH: aarch64, CPU: aarch64)
+Wed Jun 25 13:59:14 2025 -> Log file size limited to 4294967295 bytes.
+Wed Jun 25 13:59:14 2025 -> Reading databases from /var/lib/clamav
+Wed Jun 25 13:59:14 2025 -> Not loading PUA signatures.
+Wed Jun 25 13:59:14 2025 -> Bytecode: Security mode set to "TrustSigned".
+Wed Jun 25 13:59:30 2025 -> Loaded 8707291 signatures.
+Wed Jun 25 13:59:35 2025 -> LOCAL: Unix socket file /var/run/clamav/clamd.ctl
+Wed Jun 25 13:59:35 2025 -> LOCAL: Setting connection queue length to 15
+Wed Jun 25 13:59:35 2025 -> Limits: Global time limit set to 120000 milliseconds.
+Wed Jun 25 13:59:35 2025 -> Limits: Global size limit set to 104857600 bytes.
+Wed Jun 25 13:59:35 2025 -> Limits: File size limit set to 26214400 bytes.
+Wed Jun 25 13:59:35 2025 -> Limits: Recursion level limit set to 16.
+Wed Jun 25 13:59:35 2025 -> Limits: Files limit set to 10000.
+Wed Jun 25 13:59:35 2025 -> Limits: MaxEmbeddedPE limit set to 10485760 bytes.
+Wed Jun 25 13:59:35 2025 -> Limits: MaxHTMLNormalize limit set to 10485760 bytes.
+Wed Jun 25 13:59:35 2025 -> Limits: MaxHTMLNoTags limit set to 2097152 bytes.
+Wed Jun 25 13:59:35 2025 -> Limits: MaxScriptNormalize limit set to 5242880 bytes.
+Wed Jun 25 13:59:35 2025 -> Limits: MaxZipTypeRcg limit set to 1048576 bytes.
+Wed Jun 25 13:59:35 2025 -> Limits: MaxPartitions limit set to 50.
+Wed Jun 25 13:59:35 2025 -> Limits: MaxIconsPE limit set to 100.
+Wed Jun 25 13:59:35 2025 -> Limits: MaxRecHWP3 limit set to 16.
+Wed Jun 25 13:59:35 2025 -> Limits: PCREMatchLimit limit set to 10000.
+Wed Jun 25 13:59:35 2025 -> Limits: PCRERecMatchLimit limit set to 5000.
+Wed Jun 25 13:59:35 2025 -> Limits: PCREMaxFileSize limit set to 26214400.
+Wed Jun 25 13:59:35 2025 -> Archive support enabled.
+Wed Jun 25 13:59:35 2025 -> AlertExceedsMax heuristic detection disabled.
+Wed Jun 25 13:59:35 2025 -> Heuristic alerts enabled.
+Wed Jun 25 13:59:35 2025 -> Portable Executable support enabled.
+Wed Jun 25 13:59:35 2025 -> ELF support enabled.
+Wed Jun 25 13:59:35 2025 -> Mail files support enabled.
+Wed Jun 25 13:59:35 2025 -> OLE2 support enabled.
+Wed Jun 25 13:59:35 2025 -> PDF support enabled.
+Wed Jun 25 13:59:35 2025 -> SWF support enabled.
+Wed Jun 25 13:59:35 2025 -> HTML support enabled.
+Wed Jun 25 13:59:35 2025 -> XMLDOCS support enabled.
+Wed Jun 25 13:59:35 2025 -> HWP3 support enabled.
+Wed Jun 25 13:59:35 2025 -> Self checking every 3600 seconds.
+Wed Jun 25 14:59:35 2025 -> SelfCheck: Database status OK.
+Wed Jun 25 15:59:35 2025 -> SelfCheck: Database status OK.
+Wed Jun 25 16:59:35 2025 -> SelfCheck: Database status OK.
+Wed Jun 25 19:02:50 2025 -> SelfCheck: Database status OK.
+Wed Jun 25 19:55:46 2025 -> --- Stopped at Wed Jun 25 19:55:46 2025
+Wed Jun 25 19:55:46 2025 -> Socket file removed.
+Wed Jun 25 19:55:54 2025 -> +++ Started at Wed Jun 25 19:55:54 2025
+Wed Jun 25 19:55:54 2025 -> Received 0 file descriptor(s) from systemd.
+Wed Jun 25 19:55:54 2025 -> clamd daemon 0.103.12 (OS: linux-gnu, ARCH: aarch64, CPU: aarch64)
+Wed Jun 25 19:55:54 2025 -> Log file size limited to 4294967295 bytes.
+Wed Jun 25 19:55:54 2025 -> Reading databases from /var/lib/clamav
+Wed Jun 25 19:55:54 2025 -> Not loading PUA signatures.
+Wed Jun 25 19:55:54 2025 -> Bytecode: Security mode set to "TrustSigned".
+Wed Jun 25 19:56:06 2025 -> Loaded 8707291 signatures.
+Wed Jun 25 19:56:08 2025 -> LOCAL: Unix socket file /var/run/clamav/clamd.ctl
+Wed Jun 25 19:56:08 2025 -> LOCAL: Setting connection queue length to 15
+Wed Jun 25 19:56:08 2025 -> Limits: Global time limit set to 120000 milliseconds.
+Wed Jun 25 19:56:08 2025 -> Limits: Global size limit set to 104857600 bytes.
+Wed Jun 25 19:56:08 2025 -> Limits: File size limit set to 26214400 bytes.
+Wed Jun 25 19:56:08 2025 -> Limits: Recursion level limit set to 16.
+Wed Jun 25 19:56:08 2025 -> Limits: Files limit set to 10000.
+Wed Jun 25 19:56:08 2025 -> Limits: MaxEmbeddedPE limit set to 10485760 bytes.
+Wed Jun 25 19:56:08 2025 -> Limits: MaxHTMLNormalize limit set to 10485760 bytes.
+Wed Jun 25 19:56:08 2025 -> Limits: MaxHTMLNoTags limit set to 2097152 bytes.
+Wed Jun 25 19:56:08 2025 -> Limits: MaxScriptNormalize limit set to 5242880 bytes.
+Wed Jun 25 19:56:08 2025 -> Limits: MaxZipTypeRcg limit set to 1048576 bytes.
+Wed Jun 25 19:56:08 2025 -> Limits: MaxPartitions limit set to 50.
+Wed Jun 25 19:56:08 2025 -> Limits: MaxIconsPE limit set to 100.
+Wed Jun 25 19:56:08 2025 -> Limits: MaxRecHWP3 limit set to 16.
+Wed Jun 25 19:56:08 2025 -> Limits: PCREMatchLimit limit set to 10000.
+Wed Jun 25 19:56:08 2025 -> Limits: PCRERecMatchLimit limit set to 5000.
+Wed Jun 25 19:56:08 2025 -> Limits: PCREMaxFileSize limit set to 26214400.
+Wed Jun 25 19:56:08 2025 -> Archive support enabled.
+Wed Jun 25 19:56:08 2025 -> AlertExceedsMax heuristic detection disabled.
+Wed Jun 25 19:56:08 2025 -> Heuristic alerts enabled.
+Wed Jun 25 19:56:08 2025 -> Portable Executable support enabled.
+Wed Jun 25 19:56:08 2025 -> ELF support enabled.
+Wed Jun 25 19:56:08 2025 -> Mail files support enabled.
+Wed Jun 25 19:56:08 2025 -> OLE2 support enabled.
+Wed Jun 25 19:56:08 2025 -> PDF support enabled.
+Wed Jun 25 19:56:08 2025 -> SWF support enabled.
+Wed Jun 25 19:56:08 2025 -> HTML support enabled.
+Wed Jun 25 19:56:08 2025 -> XMLDOCS support enabled.
+Wed Jun 25 19:56:08 2025 -> HWP3 support enabled.
+Wed Jun 25 19:56:08 2025 -> Self checking every 3600 seconds.
+Wed Jun 25 20:56:08 2025 -> SelfCheck: Database status OK.
+Wed Jun 25 21:56:08 2025 -> SelfCheck: Database status OK.
+Wed Jun 25 22:56:08 2025 -> SelfCheck: Database status OK.
+Wed Jun 25 23:56:08 2025 -> SelfCheck: Database status OK.
+Thu Jun 26 12:18:42 2025 -> SelfCheck: Database modification detected. Forcing reload.
+Thu Jun 26 12:18:42 2025 -> Reading databases from /var/lib/clamav
+Thu Jun 26 12:18:52 2025 -> Database correctly reloaded (8707291 signatures)
+Thu Jun 26 12:18:52 2025 -> Activating the newly loaded database...
+Thu Jun 26 13:19:00 2025 -> SelfCheck: Database status OK.
+Thu Jun 26 14:19:00 2025 -> SelfCheck: Database status OK.
+Thu Jun 26 15:29:08 2025 -> SelfCheck: Database status OK.

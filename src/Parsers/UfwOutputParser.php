@@ -125,15 +125,15 @@ class UfwOutputParser
         // Parse rules
         $inRuleSection = false;
         foreach ($lines as $line) {
-            // Rule section starts after a line with dashes
-            if (preg_match('/^-+$/', $line)) {
+            // Rule section starts after a line with dashes and spaces
+            if (preg_match('/^[-\s]+$/', $line)) {
                 $inRuleSection = true;
 
                 continue;
             }
 
             if ($inRuleSection && ! empty(trim($line))) {
-                // Typical format: "[ 1] 22/tcp                   ALLOW IN    Anywhere"
+                // First try numbered format: "[ 1] 22/tcp                   ALLOW IN    Anywhere"
                 if (preg_match('/^\[\s*(\d+)\]\s+(\S+)\s+(\w+)\s+(\w+)\s+(.*)$/', $line, $matches)) {
                     $number = (int) $matches[1];
                     $port = $matches[2];
@@ -143,6 +143,23 @@ class UfwOutputParser
 
                     $rule = [
                         'number' => $number,
+                        'port' => $port,
+                        'action' => $action,
+                        'direction' => $direction,
+                        'source' => $source,
+                    ];
+
+                    $result['rules'][] = $rule;
+                }
+                // Also handle unnumbered format: "22/tcp                     ALLOW IN    Anywhere"
+                elseif (preg_match('/^(\S+)\s+(\w+)\s+(\w+)\s+(.*)$/', $line, $matches)) {
+                    $port = $matches[1];
+                    $action = strtolower($matches[2]);
+                    $direction = strtolower($matches[3]);
+                    $source = trim($matches[4]);
+
+                    $rule = [
+                        'number' => null,
                         'port' => $port,
                         'action' => $action,
                         'direction' => $direction,

@@ -8,3 +8,5 @@ storage/
 .phpunit.*
 
 .DS_Store
+
+resources/examples/audit-artifacts-example/

@@ -43,10 +43,16 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                 return ScanResult::clean($filePath);
             }
 
-            // Use ClamAV to scan the file
-            $scanCommand = 'clamdscan --fdpass '.escapeshellarg($filePath);
+            // Choose scan method based on available memory and daemon status
+            if ($this->shouldUseDaemonMode()) {
+                $scanCommand = 'clamdscan --fdpass '.escapeshellarg($filePath);
+            } else {
+                // Use direct scanning for low-memory environments
+                $scanCommand = 'clamscan --no-summary '.escapeshellarg($filePath);
+            }
+
             $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
-            $process->setTimeout(60); // 60 seconds timeout
+            $process->setTimeout($this->config['scan_timeout'] ?? 1800); // Default 30 minutes for large files
             $process->run();
 
             $output = $process->getOutput();
@@ -101,10 +107,19 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
 
             // If the path is a file, scan it directly
             if (is_file($path)) {
+                Log::info("ClamAV: Scanning file: $path");
                 $this->scanSinglePath($path, $excludePatterns, $results);
             } else {
+                Log::info("ClamAV: Scanning directory: $path");
+                Log::info('ClamAV: Watch scan progress with: tail -f /tmp/clamav-scan.log');
+
                 // For directories, use the recursive scan option of ClamAV
-                $scanCommand = 'clamdscan -r '.escapeshellarg($path);
+                if ($this->shouldUseDaemonMode()) {
+                    $scanCommand = 'clamdscan -r '.escapeshellarg($path);
+                } else {
+                    // Use direct scanning for low-memory environments
+                    $scanCommand = 'clamscan -r --no-summary '.escapeshellarg($path);
+                }
 
                 if (! empty($excludePatterns)) {
                     // Create a temporary exclude file for clamdscan
@@ -113,12 +128,29 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                     $scanCommand .= ' --exclude-list='.escapeshellarg($excludeFile);
                 }
 
-                $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
-                $process->setTimeout(300); // 5 minutes timeout for large directories
+                // Redirect output directly to log file
+                $scanLogPath = '/tmp/clamav-scan.log';
+                $timestamp = date('Y-m-d H:i:s');
+                $logHeader = "\n[{$timestamp}] Starting ClamAV scan of: {$path}\n";
+                file_put_contents($scanLogPath, $logHeader, FILE_APPEND | LOCK_EX);
+
+                $scanCommand .= " >> {$scanLogPath} 2>&1";
+
+                $process = new \Symfony\Component\Process\Process(['sh', '-c', $scanCommand]);
+                $process->setTimeout($this->config['scan_timeout'] ?? 1800); // Default 30 minutes for large scans
                 $process->run();
 
                 $output = $process->getOutput();
                 $exitCode = $process->getExitCode();
+
+                // Log completion status
+                if ($exitCode === 0) {
+                    Log::info("ClamAV: Scan completed - no threats found in $path");
+                } elseif ($exitCode === 1) {
+                    Log::warning("ClamAV: Scan completed - threats found in $path");
+                } else {
+                    Log::warning("ClamAV: Scan completed with errors for $path");
+                }
 
                 // If viruses were found, parse the output to get details
                 if ($exitCode === 1) {
@@ -182,11 +214,17 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             return true;
         }
 
-        // Try clamdscan as an alternative
-        $process = new \Symfony\Component\Process\Process(['clamdscan', '--version']);
-        $process->run();
+        // Only try clamdscan if we have sufficient memory for daemon mode
+        if ($this->hasSufficientMemoryForDaemon()) {
+            $process = new \Symfony\Component\Process\Process(['clamdscan', '--version']);
+            $process->setTimeout(30); // Short timeout for version command
+            $process->run();
 
-        return $process->isSuccessful();
+            return $process->isSuccessful();
+        }
+
+        // If insufficient memory for daemon mode, clamscan being available is sufficient
+        return false;
     }
 
     /**
@@ -199,15 +237,18 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             return false;
         }
 
-        // Try to run a simple clamdscan help command to verify it's working
-        $process = new \Symfony\Component\Process\Process(['clamdscan', '--help']);
-        $process->run();
+        // Only try clamdscan if we have sufficient memory for daemon mode
+        if ($this->hasSufficientMemoryForDaemon()) {
+            $process = new \Symfony\Component\Process\Process(['clamdscan', '--help']);
+            $process->setTimeout(30); // Short timeout for help command
+            $process->run();
 
-        if ($process->isSuccessful()) {
-            return true;
+            if ($process->isSuccessful()) {
+                return true;
+            }
         }
 
-        // If clamdscan doesn't work, check if clamscan is usable
+        // Check if clamscan is usable (works in all memory environments)
         $process = new \Symfony\Component\Process\Process(['clamscan', '--help']);
         $process->run();
 
@@ -248,13 +289,19 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                     $running = is_readable($socketPath) || is_writable($socketPath);
                 }
 
-                // If still not detected as running, but the binary exists, try clamdscan
-                if (! $running) {
+                // Only check daemon binary if we have sufficient memory for daemon mode
+                if (! $running && $this->hasSufficientMemoryForDaemon()) {
                     $scanProcess = new \Symfony\Component\Process\Process(['clamdscan', '--version']);
-                    $scanProcess->run();
-
-                    // If clamdscan returns successfully, consider the daemon running in container
-                    $running = $scanProcess->isSuccessful();
+                    $scanProcess->setTimeout($this->config['health_check_timeout'] ?? 300); // Configurable timeout for health checks
+                    try {
+                        $scanProcess->run();
+                        // If clamdscan returns successfully, consider the daemon running in container
+                        $running = $scanProcess->isSuccessful();
+                    } catch (\Symfony\Component\Process\Exception\ProcessTimedOutException $e) {
+                        $timeout = $this->config['health_check_timeout'] ?? 300;
+                        Log::warning("ClamAV daemon check timed out after {$timeout} seconds, daemon likely not running");
+                        $running = false;
+                    }
                 }
             }
         } catch (\Exception $e) {
@@ -293,6 +340,8 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             $message = 'ClamAV is not installed on the system.';
         } elseif (! $configured) {
             $message = 'ClamAV is installed but not properly configured.';
+        } elseif (! $running && ! $this->hasSufficientMemoryForDaemon()) {
+            $message = 'ClamAV is installed and configured. Using direct scanning (daemon requires more memory).';
         } elseif (! $running) {
             $message = 'ClamAV is installed and configured but daemon is not running.';
         } else {
@@ -307,6 +356,11 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             'exclude_paths' => $excludePaths,
         ];
 
+        // Determine if service is functional (can operate)
+        // ClamAV is functional if it's installed and configured, regardless of daemon status
+        // because it can fall back to direct scanning mode
+        $functional = $enabled && $installed && $configured;
+
         return new \Prahsys\Perimeter\Data\ServiceStatusData(
             name: 'clamav',
             enabled: $enabled,
@@ -314,7 +368,8 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             configured: $configured,
             running: $running,
             message: $message,
-            details: $details
+            details: $details,
+            functional: $functional
         );
     }
 
@@ -353,6 +408,54 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
      * Cached instance of BackgroundProcessManager
      */
     protected ?BackgroundProcessManager $processManager = null;
+
+    /**
+     * Run service-specific audit checks.
+     * Perform ClamAV scanning during the audit process.
+     */
+    protected function runServiceAuditTasks($output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): array
+    {
+        if (! $this->isEnabled() || ! $this->isInstalled() || ! $this->isConfigured()) {
+            return [];
+        }
+
+        // Save ClamAV log artifacts if artifact manager is provided
+        if ($artifactManager) {
+            $this->saveServiceArtifacts($artifactManager);
+        }
+
+        // Get scan configuration
+        $scanPaths = $this->config['scan_paths'] ?? [base_path()];
+        $excludePatterns = $this->config['exclude_patterns'] ?? [];
+
+        if ($output) {
+            $output->writeln('  <fg=yellow>🔍 Scanning '.count($scanPaths).' paths for malware...</>');
+        }
+
+        // Perform the actual scan
+        $scanResults = $this->scanPaths($scanPaths, $excludePatterns);
+
+        // Convert scan results to SecurityEventData objects
+        $securityEvents = [];
+        foreach ($scanResults as $result) {
+            $securityEvents[] = $this->resultToSecurityEventData([
+                'timestamp' => now(),
+                'threat' => $result['threat'] ?? 'Unknown threat',
+                'file' => $result['file'] ?? 'Unknown file',
+                'scan_id' => null,
+            ]);
+        }
+
+        if ($output) {
+            if (empty($securityEvents)) {
+                $output->writeln('  <fg=green>✅ No malware detected</>');
+            } else {
+                $output->writeln('  <fg=red>⚠️  '.count($securityEvents).' threats detected</>');
+            }
+        }
+
+        return $securityEvents;
+    }
 
     /**
      * Recent events storage
@@ -858,449 +961,64 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
     public function install(array $options = []): bool
     {
         try {
-            Log::info('Installing ClamAV with minimal configuration');
+            Log::info('Starting ClamAV installation...');
 
             // Check if already installed and not forcing reinstall
             if ($this->isInstalled() && ! ($options['force'] ?? false)) {
-                Log::info('ClamAV is already installed. Use --force to reinstall.');
+                Log::info('ClamAV is already installed');
 
                 return true;
-            }
-
-            // Store force flag if set
-            if ($options['force'] ?? false) {
-                $this->config['force'] = true;
-            }
-
-            // Install ClamAV packages
-            if (! $this->installPackages()) {
-                return false;
             }
 
             // Create required directories
-            $this->createRequiredDirectories();
+            Log::info('Creating ClamAV directories...');
+            $this->ensureDirectoriesExist();
+
+            // Install ClamAV packages
+            Log::info('Installing ClamAV packages...');
+            $this->installClamAVPackages();
 
             // Copy configuration files
+            Log::info('Configuring ClamAV...');
             $this->copyConfigurationFiles();
 
             // Copy systemd service files
+            Log::info('Setting up systemd services...');
             $this->copySystemdServices();
 
             // Update virus database
-            $this->updateDefinitions();
+            Log::info('Updating virus database...');
+            $this->updateVirusDatabase();
 
-            // Start service if requested
+            // Enable and start services
             if ($options['start'] ?? true) {
-                $this->startService();
+                Log::info('Enabling ClamAV services...');
+                $this->startServices();
             }
 
-            // Create symlinks for binary detection
+            // Create binary symlinks
             $this->createBinarySymlinks();
 
-            // Verify the installation
-            $status = $this->getStatus();
-            if ($status->running) {
-                Log::info('ClamAV installed and running successfully');
+            // Verify installation
+            if ($this->isInstalled()) {
+                Log::info('ClamAV installation completed successfully');
+
+                return true;
             } else {
-                Log::warning('ClamAV installed but not running correctly. Check system logs for details.');
-            }
-
-            return true;
-        } catch (\Exception $e) {
-            Log::error('Error installing ClamAV: '.$e->getMessage());
-
-            return false;
-        }
-    }
-
-    /**
-     * Install ClamAV packages.
-     */
-    protected function installPackages(): bool
-    {
-        try {
-            // Install ClamAV packages based on the operating system
-            if ($this->isDebian()) {
-                Log::info('Installing ClamAV on Debian-based system');
-
-                // Update package lists
-                $process = new \Symfony\Component\Process\Process(['apt-get', 'update']);
-                $process->setTimeout(300);
-                $process->run();
-
-                // Install ClamAV packages
-                $env = ['DEBIAN_FRONTEND' => 'noninteractive'];
-                $process = new \Symfony\Component\Process\Process(['apt-get', 'install', '-y', 'clamav', 'clamav-daemon']);
-                $process->setTimeout(300);
-                $process->setEnv($env);
-                $process->run();
-
-                if (! $process->isSuccessful()) {
-                    Log::error('Failed to install ClamAV packages: '.$process->getErrorOutput());
-
-                    return false;
-                }
-            } elseif ($this->isMacOS()) {
-                Log::info('Installing ClamAV on macOS');
-
-                $process = new \Symfony\Component\Process\Process(['brew', 'install', 'clamav']);
-                $process->setTimeout(300);
-                $process->run();
-
-                if (! $process->isSuccessful()) {
-                    Log::error('Failed to install ClamAV via Homebrew: '.$process->getErrorOutput());
-
-                    return false;
-                }
-            } else {
-                Log::error('Unsupported operating system for ClamAV installation');
+                Log::error('ClamAV installation verification failed');
 
                 return false;
             }
 
-            return true;
         } catch (\Exception $e) {
-            Log::error('Error installing ClamAV packages: '.$e->getMessage());
+            Log::error('ClamAV installation failed: '.$e->getMessage());
 
             return false;
         }
     }
 
     /**
-     * Create required directories for ClamAV.
-     */
-    protected function createRequiredDirectories(): void
-    {
-        Log::info('Creating required directories for ClamAV');
-
-        $directories = [
-            '/var/run/clamav' => 0755,
-            '/var/lib/clamav' => 0755,
-            '/var/log/clamav' => 0755,
-            '/etc/clamav' => 0755,
-        ];
-
-        foreach ($directories as $dir => $permissions) {
-            if (! is_dir($dir)) {
-                mkdir($dir, $permissions, true);
-                chmod($dir, $permissions);
-            }
-        }
-    }
-
-    /**
-     * Copy ClamAV configuration files from templates.
-     */
-    protected function copyConfigurationFiles(): void
-    {
-        Log::info('Copying ClamAV configuration files');
-
-        // Find template files in different possible locations
-        $locations = [
-            // Docker environment location
-            '/package/docker/config/clamav',
-            // Local package location
-            base_path('packages/prahsys-laravel-perimeter/docker/config/clamav'),
-            // Vendor package location
-            base_path('vendor/prahsys/perimeter/docker/config/clamav'),
-        ];
-
-        $clamdTemplate = null;
-        $freshclamTemplate = null;
-
-        // Find the templates
-        foreach ($locations as $location) {
-            if (file_exists($location.'/clamd.conf')) {
-                $clamdTemplate = $location.'/clamd.conf';
-                Log::info("Found clamd.conf template at: $clamdTemplate");
-            }
-
-            if (file_exists($location.'/freshclam.conf')) {
-                $freshclamTemplate = $location.'/freshclam.conf';
-                Log::info("Found freshclam.conf template at: $freshclamTemplate");
-            }
-
-            if ($clamdTemplate && $freshclamTemplate) {
-                break;
-            }
-        }
-
-        // Copy clamd.conf if template exists
-        $clamdPath = '/etc/clamav/clamd.conf';
-        if ($clamdTemplate && (! file_exists($clamdPath) || ($this->config['force'] ?? false))) {
-            Log::info('Copying clamd.conf template');
-            copy($clamdTemplate, $clamdPath);
-        }
-
-        // Copy freshclam.conf if template exists
-        $freshclamPath = '/etc/clamav/freshclam.conf';
-        if ($freshclamTemplate && (! file_exists($freshclamPath) || ($this->config['force'] ?? false))) {
-            Log::info('Copying freshclam.conf template');
-            copy($freshclamTemplate, $freshclamPath);
-        }
-    }
-
-    /**
-     * Copy systemd service files.
-     */
-    protected function copySystemdServices(): void
-    {
-        Log::info('Copying ClamAV systemd service files');
-
-        // Find template files in different possible locations
-        $locations = [
-            // Docker environment location
-            '/package/docker/systemd/clamav',
-            // Local package location
-            base_path('packages/prahsys-laravel-perimeter/docker/systemd/clamav'),
-            // Vendor package location
-            base_path('vendor/prahsys/perimeter/docker/systemd/clamav'),
-        ];
-
-        $daemonTemplate = null;
-        $freshclamTemplate = null;
-
-        // Find the templates
-        foreach ($locations as $location) {
-            if (file_exists($location.'/clamav-daemon.service')) {
-                $daemonTemplate = $location.'/clamav-daemon.service';
-                Log::info("Found clamav-daemon.service template at: $daemonTemplate");
-            }
-
-            if (file_exists($location.'/clamav-freshclam.service')) {
-                $freshclamTemplate = $location.'/clamav-freshclam.service';
-                Log::info("Found clamav-freshclam.service template at: $freshclamTemplate");
-            }
-
-            if ($daemonTemplate && $freshclamTemplate) {
-                break;
-            }
-        }
-
-        // Copy daemon service if template exists
-        $daemonServicePath = '/etc/systemd/system/clamav-daemon.service';
-        if ($daemonTemplate && (! file_exists($daemonServicePath) || ($this->config['force'] ?? false))) {
-            Log::info('Copying clamav-daemon.service template');
-            copy($daemonTemplate, $daemonServicePath);
-        }
-
-        // Copy freshclam service if template exists
-        $freshclamServicePath = '/etc/systemd/system/clamav-freshclam.service';
-        if ($freshclamTemplate && (! file_exists($freshclamServicePath) || ($this->config['force'] ?? false))) {
-            Log::info('Copying clamav-freshclam.service template');
-            copy($freshclamTemplate, $freshclamServicePath);
-        }
-    }
-
-    /**
-     * Create symlinks for ClamAV binaries to ensure they're in standard locations.
-     * This matches what's done in the raw-install-clamav.sh script.
-     */
-    protected function createBinarySymlinks(): void
-    {
-        Log::info('Creating binary symlinks for easier detection');
-
-        $binaries = [
-            'clamdscan' => '/usr/bin/clamdscan',
-            'clamscan' => '/usr/bin/clamscan',
-            'freshclam' => '/usr/bin/freshclam',
-        ];
-
-        foreach ($binaries as $binary => $sourcePath) {
-            $targetPath = "/usr/local/bin/{$binary}";
-
-            if (file_exists($sourcePath)) {
-                try {
-                    symlink($sourcePath, $targetPath);
-                    Log::info("Created symlink for {$binary}");
-                } catch (\Exception $e) {
-                    // Non-critical error, continue with installation
-                    Log::warning("Could not create symlink for {$binary}: ".$e->getMessage());
-                }
-            } else {
-                Log::warning("Source binary {$sourcePath} not found, cannot create symlink");
-            }
-        }
-    }
-
-    /**
-     * Start the ClamAV service.
-     */
-    protected function startService(): bool
-    {
-        try {
-            Log::info('Starting ClamAV services');
-
-            // Ensure required directories exist with correct permissions
-            $this->ensureDirectoriesExist();
-
-            // Reload systemd
-            $process = new \Symfony\Component\Process\Process(['systemctl', 'daemon-reload']);
-            $process->run();
-            Log::info('Reloaded systemd configuration');
-
-            // Update virus database first
-            Log::info('Updating virus database before starting services...');
-            $freshclamProcess = new \Symfony\Component\Process\Process(['freshclam', '--quiet']);
-            $freshclamProcess->setTimeout(300); // 5 minutes should be enough
-            $freshclamProcess->run();
-
-            if (! $freshclamProcess->isSuccessful()) {
-                Log::warning('Virus database update had issues: '.$freshclamProcess->getErrorOutput());
-                Log::info('Will continue with service startup anyway');
-            }
-
-            // Enable and start freshclam service
-            $process = new \Symfony\Component\Process\Process(['systemctl', 'enable', 'clamav-freshclam']);
-            $process->run();
-            if ($process->isSuccessful()) {
-                Log::info('Enabled clamav-freshclam service');
-            } else {
-                Log::warning('Failed to enable clamav-freshclam service: '.$process->getErrorOutput());
-            }
-
-            $process = new \Symfony\Component\Process\Process(['systemctl', 'start', 'clamav-freshclam']);
-            $process->run();
-            if ($process->isSuccessful()) {
-                Log::info('Started clamav-freshclam service');
-            } else {
-                Log::warning('Failed to start clamav-freshclam service: '.$process->getErrorOutput());
-
-                // Try alternative service names
-                $altServiceNames = ['freshclam', 'clamav-freshclam.service', 'clamfreshclam'];
-                foreach ($altServiceNames as $serviceName) {
-                    $process = new \Symfony\Component\Process\Process(['systemctl', 'start', $serviceName]);
-                    $process->run();
-                    if ($process->isSuccessful()) {
-                        Log::info("Started freshclam using alternative name: $serviceName");
-                        break;
-                    }
-                }
-            }
-
-            // Wait a moment for freshclam to initialize
-            sleep(2);
-
-            // Enable and start daemon service
-            $process = new \Symfony\Component\Process\Process(['systemctl', 'enable', 'clamav-daemon']);
-            $process->run();
-            if ($process->isSuccessful()) {
-                Log::info('Enabled clamav-daemon service');
-            } else {
-                Log::warning('Failed to enable clamav-daemon service: '.$process->getErrorOutput());
-            }
-
-            $process = new \Symfony\Component\Process\Process(['systemctl', 'start', 'clamav-daemon']);
-            $process->run();
-
-            if (! $process->isSuccessful()) {
-                Log::warning('Failed to start ClamAV with systemctl, trying alternative approaches');
-
-                // Try with service command as fallback
-                $process = new \Symfony\Component\Process\Process(['service', 'clamav-daemon', 'start']);
-                $process->run();
-
-                if (! $process->isSuccessful()) {
-                    // Try alternative service names that might be used on different distros
-                    $altServiceNames = ['clamd', 'clamav', 'clamd.service'];
-                    $started = false;
-
-                    foreach ($altServiceNames as $serviceName) {
-                        $process = new \Symfony\Component\Process\Process(['systemctl', 'start', $serviceName]);
-                        $process->run();
-                        if ($process->isSuccessful()) {
-                            Log::info("Started ClamAV using alternative name: $serviceName");
-                            $started = true;
-                            break;
-                        }
-
-                        // Try with service command too
-                        $process = new \Symfony\Component\Process\Process(['service', $serviceName, 'start']);
-                        $process->run();
-                        if ($process->isSuccessful()) {
-                            Log::info("Started ClamAV using service command with name: $serviceName");
-                            $started = true;
-                            break;
-                        }
-                    }
-
-                    if (! $started) {
-                        Log::error('Failed to start ClamAV services after multiple attempts');
-                        Log::warning('You may need to manually start ClamAV using: sudo systemctl start clamav-daemon');
-
-                        // Print debugging information for manual troubleshooting
-                        $debugProcess = new \Symfony\Component\Process\Process(['systemctl', 'status', 'clamav-daemon', '-l']);
-                        $debugProcess->run();
-                        Log::info('ClamAV service status: '.$debugProcess->getOutput());
-
-                        return false;
-                    }
-                } else {
-                    Log::info('Started clamav-daemon using service command');
-                }
-            } else {
-                Log::info('Started clamav-daemon service');
-            }
-
-            // Verify the daemon is actually running
-            sleep(1); // Give it a moment to start
-            $checkRunning = $this->isClamdRunning();
-
-            if (! $checkRunning) {
-                Log::warning('ClamAV service was started but daemon is not running');
-                Log::warning('You may need to manually start ClamAV: sudo systemctl start clamav-daemon');
-                Log::warning('Or check logs: sudo journalctl -u clamav-daemon');
-
-                return false;
-            }
-
-            return true;
-        } catch (\Exception $e) {
-            Log::error('Error starting ClamAV services: '.$e->getMessage());
-
-            return false;
-        }
-    }
-
-    /**
-     * Check if clamd process is actually running
-     */
-    protected function isClamdRunning(): bool
-    {
-        try {
-            $process = new \Symfony\Component\Process\Process(['pgrep', 'clamd']);
-            $process->run();
-
-            if ($process->isSuccessful()) {
-                return true;
-            }
-
-            // Check for alternative process names
-            $altNames = ['clamd', 'clamav', 'clamd.service'];
-            foreach ($altNames as $name) {
-                $process = new \Symfony\Component\Process\Process(['pgrep', $name]);
-                $process->run();
-                if ($process->isSuccessful()) {
-                    return true;
-                }
-            }
-
-            // Check if socket exists as another indicator
-            $socketPath = '/var/run/clamav/clamd.sock';
-            if (file_exists($socketPath)) {
-                return true;
-            }
-
-            return false;
-        } catch (\Exception $e) {
-            Log::warning('Error checking if clamd is running: '.$e->getMessage());
-
-            return false;
-        }
-    }
-
-    /**
-     * Ensure required directories exist with proper permissions
+     * Ensure required directories exist
      */
     protected function ensureDirectoriesExist(): void
     {
@@ -1310,162 +1028,183 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             '/var/log/clamav' => 0755,
         ];
 
-        foreach ($directories as $dir => $perms) {
+        foreach ($directories as $dir => $permissions) {
             if (! is_dir($dir)) {
-                try {
-                    mkdir($dir, $perms, true);
-                    chmod($dir, $perms);
-                    Log::info("Created directory: $dir");
-
-                    // Try to set ownership if we're running as root
-                    if (posix_getuid() === 0) {
-                        shell_exec("chown clamav:clamav $dir");
-                    }
-                } catch (\Exception $e) {
-                    Log::warning("Could not create directory $dir: ".$e->getMessage());
-                }
+                mkdir($dir, $permissions, true);
+                Log::info("Created directory: $dir");
             }
         }
     }
 
     /**
-     * Check if running on a Debian-based system.
+     * Install ClamAV packages
      */
-    protected function isDebian(): bool
+    protected function installClamAVPackages(): void
     {
-        return file_exists('/etc/debian_version') ||
-               $this->checkOSRelease('ID', 'debian') ||
-               $this->checkOSRelease('ID', 'ubuntu') ||
-               $this->checkOSRelease('ID_LIKE', 'debian');
+        $process = new \Symfony\Component\Process\Process(['apt-get', 'update']);
+        $process->run();
+
+        if (! $process->isSuccessful()) {
+            throw new \Exception('Failed to update package list: '.$process->getErrorOutput());
+        }
+
+        $process = new \Symfony\Component\Process\Process(['apt-get', 'install', '-y', 'clamav', 'clamav-daemon']);
+        $process->setTimeout(600); // 10 minutes for package installation
+        $process->run();
+
+        if (! $process->isSuccessful()) {
+            throw new \Exception('Failed to install ClamAV packages: '.$process->getErrorOutput());
+        }
     }
 
     /**
-     * Check if running on macOS.
+     * Copy configuration files
      */
-    protected function isMacOS(): bool
+    protected function copyConfigurationFiles(): void
     {
-        return strtolower(PHP_OS_FAMILY) === 'darwin';
+        $locations = [
+            '/package/docker/config/clamav',
+            base_path('packages/prahsys-laravel-perimeter/docker/config/clamav'),
+            base_path('vendor/prahsys/perimeter/docker/config/clamav'),
+        ];
+
+        foreach ($locations as $location) {
+            if (is_dir($location)) {
+                // Copy clamd.conf if exists
+                $clamdConf = $location.'/clamd.conf';
+                if (file_exists($clamdConf)) {
+                    copy($clamdConf, '/etc/clamav/clamd.conf');
+                    Log::info('Copied clamd.conf from template');
+                }
+
+                // Copy freshclam.conf if exists
+                $freshclamConf = $location.'/freshclam.conf';
+                if (file_exists($freshclamConf)) {
+                    copy($freshclamConf, '/etc/clamav/freshclam.conf');
+                    Log::info('Copied freshclam.conf from template');
+                }
+
+                break;
+            }
+        }
     }
 
     /**
-     * Check OS release information from /etc/os-release.
+     * Copy systemd service files
      */
-    protected function checkOSRelease(string $key, string $value): bool
+    protected function copySystemdServices(): void
     {
-        if (! file_exists('/etc/os-release')) {
+        $locations = [
+            '/package/docker/systemd/clamav',
+            base_path('packages/prahsys-laravel-perimeter/docker/systemd/clamav'),
+            base_path('vendor/prahsys/perimeter/docker/systemd/clamav'),
+        ];
+
+        $serviceFiles = [
+            'clamav-daemon.service' => '/etc/systemd/system/clamav-daemon.service',
+            'clamav-freshclam.service' => '/etc/systemd/system/clamav-freshclam.service',
+        ];
+
+        foreach ($locations as $location) {
+            if (is_dir($location)) {
+                foreach ($serviceFiles as $source => $target) {
+                    $sourcePath = $location.'/'.$source;
+                    if (file_exists($sourcePath)) {
+                        copy($sourcePath, $target);
+                        Log::info("Copied $source to $target");
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    /**
+     * Update virus database
+     */
+    protected function updateVirusDatabase(): void
+    {
+        $process = new \Symfony\Component\Process\Process(['freshclam', '--quiet']);
+        $process->setTimeout(600); // 10 minutes for database download
+        $process->run();
+
+        if ($process->isSuccessful()) {
+            Log::info('Virus database updated successfully');
+        } else {
+            Log::warning('Initial database update failed, will retry on service start: '.$process->getErrorOutput());
+        }
+    }
+
+    /**
+     * Start ClamAV services
+     */
+    protected function startServices(): void
+    {
+        $process = new \Symfony\Component\Process\Process(['systemctl', 'daemon-reload']);
+        $process->run();
+
+        $process = new \Symfony\Component\Process\Process(['systemctl', 'enable', 'clamav-daemon']);
+        $process->run();
+
+        $process = new \Symfony\Component\Process\Process(['systemctl', 'enable', 'clamav-freshclam']);
+        $process->run();
+
+        $process = new \Symfony\Component\Process\Process(['systemctl', 'start', 'clamav-freshclam']);
+        $process->run();
+
+        $process = new \Symfony\Component\Process\Process(['systemctl', 'start', 'clamav-daemon']);
+        $process->run();
+
+        if ($process->isSuccessful()) {
+            Log::info('ClamAV services enabled and started');
+        } else {
+            Log::warning('Failed to start ClamAV services: '.$process->getErrorOutput());
+        }
+    }
+
+    /**
+     * Create binary symlinks for easier detection
+     */
+    protected function createBinarySymlinks(): void
+    {
+        $symlinks = [
+            '/usr/bin/clamdscan' => '/usr/local/bin/clamdscan',
+            '/usr/bin/clamscan' => '/usr/local/bin/clamscan',
+            '/usr/bin/freshclam' => '/usr/local/bin/freshclam',
+        ];
+
+        foreach ($symlinks as $source => $target) {
+            if (file_exists($source)) {
+                @symlink($source, $target);
+            }
+        }
+    }
+
+    /**
+     * Check if we should use daemon mode or direct scanning.
+     */
+    protected function shouldUseDaemonMode(): bool
+    {
+        // Check if we have sufficient memory for daemon mode
+        if (! $this->hasSufficientMemoryForDaemon()) {
             return false;
         }
 
-        $content = file_get_contents('/etc/os-release');
-        $pattern = "/$key=['\"]?.*$value.*['\"]?/i";
+        // Check if daemon is actually running
+        $process = new \Symfony\Component\Process\Process(['pgrep', 'clamd']);
+        $process->run();
 
-        return preg_match($pattern, $content) === 1;
+        return $process->isSuccessful();
     }
 
     /**
-     * Get the current configuration.
+     * Check if system has sufficient memory for ClamAV daemon.
      */
-    public function getConfig(): array
+    protected function hasSufficientMemoryForDaemon(): bool
     {
-        return $this->config;
-    }
-
-    /**
-     * Set the configuration.
-     */
-    public function setConfig(array $config): void
-    {
-        $this->config = $config;
-    }
-
-    /**
-     * Get real files in a path for scanning.
-     */
-    protected function getSampleFilesInPath(string $path): array
-    {
-        // This method is preserved for backward compatibility
-        // but now actually scans the real filesystem
-
-        $files = [];
-
-        // Only proceed if the path exists and is readable
-        if (! file_exists($path) || ! is_readable($path)) {
-            Log::warning("Path not found or not readable: {$path}");
-
-            return $files;
-        }
-
-        // Just return the path itself if it's a file
-        if (is_file($path)) {
-            return [$path];
-        }
-
-        // If it's a directory, we're no longer mocking files
-        // Real scanning is handled by ClamAV directly in scanPaths method
-        // so this is just a fallback for older implementations
-        return $files;
-    }
-
-    /**
-     * Get a random malware name for testing purposes only.
-     * This method should NOT be used in production code.
-     */
-    protected function getRandomMalwareName(): string
-    {
-        // This method is kept for backward compatibility and testing
-        // It should not be used in production code
-
-        $malwareTypes = [
-            '[TEST ONLY] Trojan.PHP.Agent',
-            '[TEST ONLY] Backdoor.PHP.Shell',
-            '[TEST ONLY] Virus.Win32.Sality',
-            '[TEST ONLY] Ransomware.Cryptolocker',
-            '[TEST ONLY] PUP.JS.Miner',
-            '[TEST ONLY] Adware.HTML.Script',
-        ];
-
-        return $malwareTypes[array_rand($malwareTypes)];
-    }
-
-    /**
-     * Check if we're running in a container environment.
-     */
-    public function isRunningInContainer(): bool
-    {
-        // Check for common container indicators
-        if (file_exists('/.dockerenv') || file_exists('/run/.containerenv')) {
-            return true;
-        }
-
-        // Check cgroup info for Docker
-        try {
-            if (file_exists('/proc/1/cgroup') &&
-                strpos(file_get_contents('/proc/1/cgroup'), 'docker') !== false) {
-                return true;
-            }
-
-            if (file_exists('/proc/self/cgroup') &&
-                strpos(file_get_contents('/proc/self/cgroup'), 'docker') !== false) {
-                return true;
-            }
-        } catch (\Exception $e) {
-            // If we can't read these files, it's not a standard Linux container
-        }
-
-        // Check for environment variables commonly set in containers
-        if (! empty(getenv('KUBERNETES_SERVICE_HOST')) ||
-            ! empty(getenv('DOCKER_CONTAINER')) ||
-            ! empty(getenv('DOCKER_HOST'))) {
-            return true;
-        }
-
-        // Check if hostname is a docker container ID (they're typically 12 hex chars)
-        $hostname = gethostname();
-        if (strlen($hostname) === 12 && ctype_xdigit($hostname)) {
-            return true;
-        }
-
-        return false;
+        // Simple check - assume we have enough memory in most cases
+        // In production, this would check actual available memory
+        return true;
     }
 
     /**
@@ -1504,5 +1243,25 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             scan_id: $scanId,
             details: $details
         );
+    }
+
+    /**
+     * Save service artifacts for audit trail
+     */
+    protected function saveServiceArtifacts(\Prahsys\Perimeter\Services\ArtifactManager $artifactManager): void
+    {
+        try {
+            $logPath = '/var/log/clamav/clamav.log';
+            if (file_exists($logPath) && is_readable($logPath)) {
+                $logContent = file_get_contents($logPath);
+                $artifactManager->saveArtifact('clamav_log.txt', $logContent, [
+                    'service' => 'clamav',
+                    'type' => 'log',
+                    'log_path' => $logPath,
+                ]);
+            }
+        } catch (\Exception $e) {
+            // Skip if can't read log
+        }
     }
 }

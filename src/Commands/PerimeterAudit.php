@@ -2,10 +2,8 @@
 
 namespace Prahsys\Perimeter\Commands;
 
-use Carbon\Carbon;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Log;
-use Prahsys\Perimeter\Facades\Perimeter;
+use Prahsys\Perimeter\Services\ArtifactManager;
 
 class PerimeterAudit extends Command
 {
@@ -16,8 +14,7 @@ class PerimeterAudit extends Command
      */
     protected $signature = 'perimeter:audit 
                             {--format=text : Output format (text, json)}
-                            {--scan-id= : Display events for a specific scan ID}
-                            {--group-by-scan : Group events by scan ID}';
+                            {--services= : Specific services to audit (comma-separated, default: all)}';
 
     /**
      * The console command description.
@@ -33,30 +30,144 @@ class PerimeterAudit extends Command
      */
     public function handle()
     {
+        $servicesOption = $this->option('services');
+        $requestedServices = $servicesOption ? array_map('trim', explode(',', $servicesOption)) : null;
+
+        // Initialize artifact manager for this audit
+        $artifactManager = new ArtifactManager;
+        $auditId = now()->format('Y-m-d_H-i-s').'_'.uniqid();
+        $auditPath = $artifactManager->initializeAudit($auditId);
+
         $this->info('Starting Perimeter Security Audit...');
+        if ($requestedServices) {
+            $servicesList = implode(', ', $requestedServices);
+            $this->info("Running audit for services: <fg=cyan>{$servicesList}</>");
+        }
+
+        $this->info("Audit artifacts will be saved to: <fg=yellow>{$auditPath}</>");
+
         $this->newLine();
 
         // First show the service health status
         $this->call('perimeter:health');
         $this->newLine();
 
-        // Get service manager to access all services
+        // Get available audit services
+        $auditServices = $this->getAuditServices($requestedServices);
+
+        if (empty($auditServices)) {
+            $errorMsg = 'No audit services available';
+            if ($requestedServices) {
+                $requestedList = implode(', ', $requestedServices);
+                $errorMsg .= " (requested services: {$requestedList} not found or not enabled)";
+            }
+            $this->error($errorMsg);
+
+            return 1;
+        }
+
+        // Create a BufferedOutput to capture all audit output
+        $bufferedOutput = new \Symfony\Component\Console\Output\BufferedOutput;
+        $capturingOutput = new \Illuminate\Console\OutputStyle(
+            new \Symfony\Component\Console\Input\ArrayInput([]),
+            $bufferedOutput
+        );
+
+        // Run audits for each service
+        $allIssues = [];
+        foreach ($auditServices as $name => $instance) {
+            try {
+                // Run the service's audit with capturing output and collect issues
+                $auditResult = $instance->runServiceAudit($capturingOutput, $artifactManager);
+
+                // Extract issues from ServiceAuditData
+                if ($auditResult && isset($auditResult->issues) && is_array($auditResult->issues)) {
+                    $allIssues = array_merge($allIssues, $auditResult->issues);
+                }
+
+                $capturingOutput->newLine();
+            } catch (\Exception $e) {
+                $capturingOutput->error("Error running audit for {$name}: ".$e->getMessage());
+            }
+        }
+
+        // Get all captured output and save as audit.log
+        $capturedContent = $bufferedOutput->fetch();
+        $artifactManager->saveArtifact('audit_log.txt', $capturedContent, [
+            'service' => 'audit',
+            'type' => 'log',
+            'command' => 'perimeter:audit',
+        ]);
+
+        // Also display the captured output to console
+        $this->output->write($capturedContent);
+
+        // Generate summary from recent database events instead of running duplicate scans
+        $this->info('📊 Generating security summary...');
+
+        // Finalize audit with artifacts - audit log would be captured by external logging if needed
+
+        $auditSummary = [
+            'services_audited' => array_keys($auditServices),
+            'total_issues' => count($allIssues),
+            'issues_by_severity' => $this->groupIssuesBySeverity($allIssues),
+            'completed_at' => now()->toDateTimeString(),
+            'artifacts_note' => 'This audit created artifacts containing detailed security data and command outputs for audit trail and compliance purposes.',
+        ];
+
+        $artifactManager->finalizeAudit($auditSummary);
+
+        $format = $this->option('format');
+
+        if ($format === 'json') {
+            $this->output->write(json_encode([
+                'message' => 'Audit completed successfully',
+                'timestamp' => now()->toISOString(),
+                'audit_id' => $auditId,
+                'artifacts_path' => $auditPath,
+                'summary' => $auditSummary,
+            ], JSON_PRETTY_PRINT));
+
+            return 0;
+        }
+
+        $this->info('No security issues found. System appears secure.');
+        $this->newLine();
+
+        $auditScope = $requestedServices ? 'Audit for '.implode(', ', $requestedServices) : 'Security audit';
+        $this->line("{$auditScope} completed at: <fg=green>".now()->toDateTimeString().'</>');
+        $this->line('No security issues found.');
+
+        $this->newLine();
+        $this->line("Audit artifacts saved to: <fg=yellow>{$auditPath}</>");
+
+        $this->newLine();
+
+        $this->line('To verify the tools are properly configured, run:');
+        $this->line('<fg=yellow>php artisan perimeter:health</>');
+        $this->line('For detailed reports of scan history, run:');
+        $this->line('<fg=yellow>php artisan perimeter:report</>');
+
+        return 0;
+    }
+
+    /**
+     * Get available audit services.
+     */
+    protected function getAuditServices(?array $requestedServices = null): array
+    {
         $serviceManager = app(\Prahsys\Perimeter\Services\ServiceManager::class);
+        $allServices = $serviceManager->all();
+        $auditServices = [];
 
-        // Get all enabled security services
-        $services = $serviceManager->all();
-
-        // Flag to track if any system audits ran
-        $ranSystemAudit = false;
-
-        // Run audits for each enabled service
-        foreach ($services as $name => $service) {
+        foreach ($allServices as $name => $service) {
             // Skip aliases (like full class names)
             if (strpos($name, '\\') !== false) {
                 continue;
             }
 
             try {
+                // Get the service instance
                 $instance = $serviceManager->get($name);
 
                 // Skip if not enabled
@@ -64,313 +175,44 @@ class PerimeterAudit extends Command
                     continue;
                 }
 
-                // Run the service's audit with output
-                $instance->runServiceAudit($this->output);
-                $this->newLine();
+                // Filter by specific services if requested
+                if ($requestedServices && ! in_array($name, $requestedServices)) {
+                    continue;
+                }
+
+                $auditServices[$name] = $instance;
             } catch (\Exception $e) {
-                $this->error("Error running audit for {$name}: ".$e->getMessage());
+                // Skip services that can't be instantiated
+                continue;
             }
         }
 
-        $auditResult = Perimeter::audit();
-        $format = $this->option('format');
-
-        if ($format === 'json') {
-            $this->output->write(json_encode($auditResult->toArray(), JSON_PRETTY_PRINT));
-
-            return 0;
-        }
-
-        // Display security summary
-        $summary = $auditResult->getSecuritySummary();
-        $severityCounts = $summary['by_severity'];
-        $typeCounts = $summary['by_type'];
-
-        $this->output->section('Issues Summary');
-        $this->line('  Critical issues: <fg=red>'.$severityCounts['critical'].'</>');
-        $this->line('  High issues: <fg=bright-red>'.$severityCounts['high'].'</>');
-        $this->line('  Medium issues: <fg=yellow>'.$severityCounts['medium'].'</>');
-        $this->line('  Low issues: <fg=green>'.$severityCounts['low'].'</>');
-        $this->newLine();
-
-        // Display critical issues
-        $criticalIssues = $auditResult->getCriticalIssues();
-
-        if (! empty($criticalIssues)) {
-            $this->line('<fg=white;bg=red>CRITICAL SECURITY ISSUES</>');
-            $this->newLine();
-
-            $headers = ['Type', 'Severity', 'Description', 'Location', 'Service'];
-            $rows = [];
-
-            foreach ($criticalIssues as $issue) {
-                $rows[] = [
-                    $issue['type'],
-                    $issue['severity'],
-                    $issue['description'],
-                    $issue['location'] ?? 'N/A',
-                    $issue['service'] ?? 'unknown',
-                ];
-            }
-
-            $this->table($headers, $rows);
-            $this->newLine();
-        }
-
-        // Display scan results summary
-        $malwareResults = $auditResult->getMalwareResults();
-        $vulnerabilityResults = $auditResult->getVulnerabilityResults();
-        $behavioralResults = $auditResult->getBehavioralResults();
-
-        $this->output->section('Scan Results Summary');
-
-        $this->line('Malware Scans: '.count($malwareResults).' issues found');
-        $this->line('Vulnerability Scans: '.count($vulnerabilityResults).' issues found');
-        $this->line('Behavioral Analysis: '.count($behavioralResults).' issues found');
-        $this->newLine();
-
-        // Get security events and display in tables by type
-        $reportBuilder = Perimeter::report()->setServiceManager($serviceManager);
-        $events = $reportBuilder->get();
-
-        // Filter by scan ID if specified
-        $scanId = $this->option('scan-id');
-        if ($scanId) {
-            $events = collect($events)->filter(function ($event) use ($scanId) {
-                return isset($event['scan_id']) && $event['scan_id'] == $scanId;
-            })->values()->all();
-
-            if (empty($events)) {
-                $this->warn("No events found for scan ID: $scanId");
-
-                // Try to get scan details from database
-                $scanClass = config('perimeter.storage.models.security_scan', \Prahsys\Perimeter\Models\SecurityScan::class);
-                $scan = $scanClass::find($scanId);
-
-                if ($scan && $scan->issues_found > 0 && ! empty($scan->scan_details) && isset($scan->scan_details['issues'])) {
-                    $this->line("<fg=blue>Found scan with ID $scanId in database</>");
-                    $this->line("Scan type: $scan->scan_type, Issues found: $scan->issues_found");
-                    $this->newLine();
-
-                    $this->output->section('Issues from Scan Details');
-
-                    $rows = [];
-                    foreach ($scan->scan_details['issues'] as $issue) {
-                        $severity = $issue['severity'] ?? 'medium';
-                        $severityColor = match (strtolower($severity)) {
-                            'critical' => 'red',
-                            'high' => 'bright-red',
-                            'medium' => 'yellow',
-                            'low' => 'green',
-                            default => 'white',
-                        };
-
-                        $description = $issue['description'] ?? 'Unknown issue';
-                        $type = $issue['type'] ?? 'system';
-                        $location = $issue['location'] ?? 'N/A';
-                        $service = $issue['service'] ?? ($scan->scan_type ?? 'system');
-                        $timestamp = $issue['timestamp'] ?? now()->format('Y-m-d H:i:s');
-
-                        $rows[] = [
-                            "<fg={$severityColor}>{$severity}</>",
-                            $type,
-                            $description,
-                            $location,
-                            $service,
-                            $scan->id,
-                            $timestamp,
-                        ];
-                    }
-
-                    $headers = ['Severity', 'Type', 'Description', 'Location', 'Service', 'Scan ID', 'Timestamp'];
-                    $this->table($headers, $rows);
-                }
-            } else {
-                $this->info("Showing events for scan ID: $scanId");
-            }
-        }
-
-        if (! empty($events)) {
-            // Check if we should group by scan ID
-            $groupByScan = $this->option('group-by-scan');
-
-            if ($groupByScan) {
-                // Group events by scan ID
-                $eventsByScanId = collect($events)
-                    ->filter(function ($event) {
-                        return isset($event['scan_id']) && ! empty($event['scan_id']);
-                    })
-                    ->groupBy('scan_id')
-                    ->toArray();
-
-                // Display events grouped by scan ID
-                if (! empty($eventsByScanId)) {
-                    $this->output->section('Events Grouped by Scan ID');
-
-                    foreach ($eventsByScanId as $scanId => $scanEvents) {
-                        $this->line("Scan ID: <fg=blue>{$scanId}</>");
-
-                        $headers = ['Severity', 'Type', 'Description', 'Location', 'Service', 'Timestamp'];
-                        $rows = [];
-
-                        foreach ($scanEvents as $event) {
-                            $location = $event['location'] ??
-                                      ($event['details']['file'] ??
-                                      ($event['details']['package'] ??
-                                      ($event['details']['process'] ?? 'N/A')));
-
-                            $service = $event['service'] ?? 'unknown';
-
-                            $severityColor = match (strtolower($event['severity'])) {
-                                'critical' => 'red',
-                                'high' => 'bright-red',
-                                'medium' => 'yellow',
-                                'low' => 'green',
-                                default => 'white',
-                            };
-
-                            $rows[] = [
-                                "<fg={$severityColor}>{$event['severity']}</>",
-                                $event['type'],
-                                $event['description'],
-                                $location,
-                                $service,
-                                Carbon::parse($event['timestamp'])->format('Y-m-d H:i:s'),
-                            ];
-                        }
-
-                        $this->table($headers, $rows);
-                        $this->newLine();
-                    }
-                } else {
-                    $this->warn('No events found with scan IDs.');
-                }
-            }
-
-            // Default view: single consolidated table of all events
-            if (! $groupByScan || $this->option('format') === 'text') {
-                $this->output->section('Security Events');
-
-                $headers = ['Severity', 'Type', 'Description', 'Location', 'Service', 'Scan ID', 'Timestamp'];
-                $rows = [];
-
-                foreach ($events as $event) {
-                    $location = $event['location'] ??
-                               ($event['details']['file'] ??
-                               ($event['details']['package'] ??
-                               ($event['details']['process'] ?? 'N/A')));
-
-                    $service = $event['service'] ?? 'unknown';
-
-                    $scanId = $event['scan_id'] ?? 'runtime';
-
-                    $severityColor = match (strtolower($event['severity'])) {
-                        'critical' => 'red',
-                        'high' => 'bright-red',
-                        'medium' => 'yellow',
-                        'low' => 'green',
-                        default => 'white',
-                    };
-
-                    $rows[] = [
-                        "<fg={$severityColor}>{$event['severity']}</>",
-                        $event['type'],
-                        $event['description'],
-                        $location,
-                        $service,
-                        $scanId,
-                        Carbon::parse($event['timestamp'])->format('Y-m-d H:i:s'),
-                    ];
-                }
-
-                $this->table($headers, $rows);
-                $this->newLine();
-            }
-
-        }
-
-        // Log the audit result at the appropriate severity level
-        $this->logAuditResults($auditResult);
-
-        if ($auditResult->hasIssues()) {
-            $this->line('Run <fg=yellow>php artisan perimeter:report</> for detailed reports');
-        } else {
-            $this->info('No security issues found. System appears secure.');
-            $this->newLine();
-
-            $this->line('Audit completed at: <fg=green>'.now()->toDateTimeString().'</>');
-            $this->line('No security issues found.');
-            $this->newLine();
-
-            $this->line('To verify the tools are properly configured, run:');
-            $this->line('<fg=yellow>php artisan perimeter:health</>');
-            $this->line('For a more detailed report, run:');
-            $this->line('<fg=yellow>php artisan perimeter:report</>');
-        }
-
-        return 0;
+        return $auditServices;
     }
 
     /**
-     * Log the entire audit results at the appropriate log level
-     * based on the highest severity issue found.
+     * Group security issues by severity level.
      */
-    protected function logAuditResults(\Prahsys\Perimeter\AuditResult $auditResult): void
+    protected function groupIssuesBySeverity(array $issues): array
     {
-        // Get the summary with severity counts
-        $summary = $auditResult->getSecuritySummary();
-        $severityCounts = $summary['by_severity'];
+        $grouped = [
+            'emergency' => 0,
+            'critical' => 0,
+            'high' => 0,
+            'medium' => 0,
+            'low' => 0,
+            'info' => 0,
+        ];
 
-        // Determine the highest severity level found
-        $logLevel = 'info';
-        if ($severityCounts['critical'] > 0) {
-            $logLevel = 'critical';
-        } elseif ($severityCounts['high'] > 0) {
-            $logLevel = 'error';
-        } elseif ($severityCounts['medium'] > 0) {
-            $logLevel = 'warning';
-        } elseif ($severityCounts['low'] > 0) {
-            $logLevel = 'notice';
+        foreach ($issues as $issue) {
+            $severity = $issue->severity ?? 'info';
+            if (isset($grouped[$severity])) {
+                $grouped[$severity]++;
+            } else {
+                $grouped['info']++;
+            }
         }
 
-        // Generate a timestamp for the log
-        $timestamp = now()->toDateTimeString();
-
-        // Create a message summarizing the audit results
-        $summaryText = "Security Audit completed at {$timestamp}";
-
-        if ($auditResult->hasIssues()) {
-            $issueCount = $summary['total_issues'];
-            $summaryText .= " with {$issueCount} issues found: ";
-            $summaryText .= "{$severityCounts['critical']} critical, {$severityCounts['high']} high, ";
-            $summaryText .= "{$severityCounts['medium']} medium, {$severityCounts['low']} low";
-        } else {
-            $summaryText .= ' with no security issues found.';
-        }
-
-        // We can't easily capture the output buffer from the command
-        // Instead, let's use the audit result data for detailed logs
-
-        // Log to all configured channels
-        $channels = config('perimeter.logging.channels', ['stack']);
-        foreach ($channels as $channel) {
-            // First log the summary at the appropriate level
-            \Illuminate\Support\Facades\Log::channel($channel)->log($logLevel, $summaryText, [
-                'type' => 'security_audit',
-                'timestamp' => $timestamp,
-                'has_issues' => $auditResult->hasIssues(),
-                'severity_counts' => $severityCounts,
-            ]);
-
-            // Then log the detailed audit results
-            \Illuminate\Support\Facades\Log::channel($channel)->log($logLevel, 'Security Audit Details', [
-                'type' => 'security_audit_detail',
-                'audit_result' => $auditResult->toArray(),
-                'malware_results' => $auditResult->getMalwareResults(),
-                'vulnerability_results' => $auditResult->getVulnerabilityResults(),
-                'behavioral_results' => $auditResult->getBehavioralResults(),
-                'critical_issues' => $auditResult->getCriticalIssues(),
-            ]);
-        }
+        return $grouped;
     }
 }

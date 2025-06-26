@@ -1,6 +1,6 @@
 <?php
 
-it('can run the perimeter:audit command in Docker', function () {
+it('can run the perimeter:audit command', function () {
 
     // Run the audit command and check for basic output
     $output = shell_exec('php artisan perimeter:audit');

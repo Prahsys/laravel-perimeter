@@ -1,6 +1,6 @@
 <?php
 
-it('can run the perimeter:health command in Docker', function () {
+it('can run the perimeter:health command', function () {
 
     // Run the health command and check for basic output
     $output = shell_exec('php artisan perimeter:health');
