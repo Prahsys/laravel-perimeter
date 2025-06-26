@@ -950,7 +950,11 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
             // Save UFW status output
             $statusResult = $this->getUfwStatusSafely();
             if ($statusResult['success']) {
-                $artifactManager->saveArtifact('ufw', 'status', $statusResult['output']);
+                $artifactManager->saveArtifact('ufw_status.txt', $statusResult['output'], [
+                    'service' => 'ufw',
+                    'type' => 'status',
+                    'command' => 'ufw status verbose'
+                ]);
             }
         } catch (\Exception $e) {
             // Skip if can't get UFW status

@@ -368,6 +368,176 @@ php artisan perimeter:prune
 php artisan perimeter:update-databases
 ```
 
+## Audit Artifacts
+
+Laravel Perimeter automatically collects comprehensive audit artifacts during security audits, providing detailed compliance documentation and forensic evidence.
+
+### What Are Audit Artifacts?
+
+Audit artifacts are timestamped collections of security service outputs, logs, and system states captured during each security audit. These artifacts serve multiple purposes:
+
+- **Compliance Documentation**: Detailed records for security audits and compliance reporting
+- **Forensic Evidence**: Preserved system states and security tool outputs for incident investigation
+- **Historical Analysis**: Point-in-time snapshots of security posture for trend analysis
+- **Troubleshooting**: Detailed service outputs to diagnose security tool issues
+
+### Artifact Collection
+
+Every time you run `php artisan perimeter:audit`, the system automatically:
+
+1. **Captures Service Outputs**: Collects logs, scan results, and status information from all enabled security services
+2. **Records System State**: Documents firewall rules, service configurations, and system health
+3. **Generates Metadata**: Creates audit summaries with timestamps, service versions, and scan statistics
+4. **Compresses Archives**: Packages all artifacts into timestamped ZIP files for efficient storage
+
+Example artifacts include:
+- ClamAV scan logs and malware detection reports
+- Trivy vulnerability scan results and database information
+- UFW firewall status and rule configurations
+- Fail2ban intrusion logs and banned IP lists
+- Falco behavioral monitoring events
+- Complete audit command output (audit.log)
+
+### Storage Configuration
+
+Configure artifact storage in `config/perimeter.php`:
+
+```php
+'artifacts' => [
+    'disk' => env('PERIMETER_ARTIFACTS_DISK', 'local'),
+    'root_path' => env('PERIMETER_ARTIFACTS_ROOT_PATH', 'perimeter/audits'),
+    'retention_days' => env('PERIMETER_ARTIFACTS_RETENTION', 90),
+],
+```
+
+#### Storage Disk Options
+
+Use any Laravel storage disk for artifact storage:
+
+```php
+// Local storage (default)
+'disk' => 'local'
+
+// AWS S3 for distributed environments
+'disk' => 's3'
+
+// Custom disk for shared storage
+'disk' => 'audit_storage'
+```
+
+#### Environment Variables
+
+```dotenv
+# Storage configuration
+PERIMETER_ARTIFACTS_DISK=s3
+PERIMETER_ARTIFACTS_ROOT_PATH=compliance/security-audits
+PERIMETER_ARTIFACTS_RETENTION=365
+```
+
+### Distributed Environments
+
+For server clusters or distributed deployments, you can add machine identification to artifact paths to prevent conflicts:
+
+#### Option 1: Machine ID in Path
+
+```dotenv
+# Add server identifier to artifact path using hostname
+PERIMETER_ARTIFACTS_ROOT_PATH=perimeter/audits/${HOSTNAME}
+# Results in: perimeter/audits/web-server-01/2025-06-26/...
+
+# Or use a custom environment variable you define
+MACHINE_ID=prod-web-001
+PERIMETER_ARTIFACTS_ROOT_PATH=perimeter/audits/${MACHINE_ID}
+# Results in: perimeter/audits/prod-web-001/2025-06-26/...
+```
+
+#### Option 2: Custom Disk Per Environment
+
+```php
+// config/filesystems.php
+'audit_storage' => [
+    'driver' => 's3',
+    'key' => env('AWS_ACCESS_KEY_ID'),
+    'secret' => env('AWS_SECRET_ACCESS_KEY'),
+    'region' => env('AWS_DEFAULT_REGION'),
+    'bucket' => env('AWS_BUCKET'),
+    'root' => 'security-audits/' . env('SERVER_ID', gethostname()),
+],
+```
+
+#### Option 3: Dynamic Path Configuration
+
+```php
+// In a service provider
+Config::set('perimeter.artifacts.root_path', 
+    'perimeter/audits/' . env('CLUSTER_NODE_ID', gethostname())
+);
+```
+
+### Artifact Structure
+
+Artifacts are organized in a consistent directory structure:
+
+```
+perimeter/audits/
+├── 2025-06-26/
+│   └── 2025-06-26_14-30-15_abc123def/
+│       ├── audit_summary.json       # Overall audit results
+│       ├── audit_metadata.json      # Scan metadata and timing
+│       ├── audit_log.txt            # Complete audit command output
+│       ├── clamav_log.txt           # ClamAV scan results
+│       ├── trivy_version.txt        # Trivy version and scan output
+│       ├── ufw_status.txt           # UFW firewall status
+│       └── ...
+│   └── artifacts.zip               # Compressed archive
+└── 2025-06-25/
+    └── ...
+```
+
+### Artifact Retention
+
+Artifacts are automatically cleaned up based on the retention period:
+
+```bash
+# Manual cleanup of old artifacts
+php artisan perimeter:prune
+
+# Automatic cleanup (if enabled in scheduler)
+$schedule->command('perimeter:prune')->weekly();
+```
+
+### Accessing Artifacts
+
+Access artifacts through Laravel's storage system:
+
+```php
+use Illuminate\Support\Facades\Storage;
+
+// List available audit dates
+$auditDates = Storage::disk(config('perimeter.artifacts.disk'))
+    ->directories(config('perimeter.artifacts.root_path'));
+
+// Get artifacts for a specific date
+$todayArtifacts = Storage::disk(config('perimeter.artifacts.disk'))
+    ->files(config('perimeter.artifacts.root_path') . '/' . now()->format('Y-m-d'));
+
+// Download an artifact file
+$artifactContent = Storage::disk(config('perimeter.artifacts.disk'))
+    ->get('perimeter/audits/2025-06-26/2025-06-26_14-30-15_abc123def.zip');
+```
+
+### Compliance Integration
+
+Artifacts are designed to support various compliance frameworks:
+
+- **SOC 2**: Regular security monitoring evidence
+- **ISO 27001**: Information security management documentation
+- **PCI DSS**: Security scanning and monitoring logs
+- **HIPAA**: Security safeguard documentation
+- **Custom Audits**: Comprehensive security posture evidence
+
+The standardized format and automated collection ensure consistent, auditable security documentation.
+
 ## Advanced Integration Features
 
 ### 1. Logging Integration
@@ -494,7 +664,7 @@ Security events are stored in dedicated database tables with optimized schemas:
   - Links to related security events
   - Provides audit trail of security operations
 
-The package automatically migrates these tables during installation. You can customize the table prefix in the configuration to match your database naming conventions.
+The package automatically migrates these tables during installation.
 
 ### Data Transfer Objects
 

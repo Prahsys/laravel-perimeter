@@ -129,7 +129,6 @@ return [
         'disk' => env('PERIMETER_ARTIFACTS_DISK', 'local'), // Laravel storage disk to use
         'root_path' => env('PERIMETER_ARTIFACTS_ROOT_PATH', 'perimeter/audits'), // Path within the disk
         'retention_days' => env('PERIMETER_ARTIFACTS_RETENTION', 90), // Keep artifacts for 90 days
-        'compress_old' => env('PERIMETER_ARTIFACTS_COMPRESS', true), // Compress artifacts immediately upon completion
     ],
 
     // Database Storage Configuration

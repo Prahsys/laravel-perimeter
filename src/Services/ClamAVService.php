@@ -1253,7 +1253,11 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
             $logPath = '/var/log/clamav/clamav.log';
             if (file_exists($logPath) && is_readable($logPath)) {
                 $logContent = file_get_contents($logPath);
-                $artifactManager->saveArtifact('clamav', 'log', $logContent);
+                $artifactManager->saveArtifact('clamav_log.txt', $logContent, [
+                    'service' => 'clamav',
+                    'type' => 'log',
+                    'log_path' => $logPath
+                ]);
             }
         } catch (\Exception $e) {
             // Skip if can't read log

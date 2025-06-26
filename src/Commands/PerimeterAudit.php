@@ -92,7 +92,11 @@ class PerimeterAudit extends Command
 
         // Get all captured output and save as audit.log
         $capturedContent = $bufferedOutput->fetch();
-        $artifactManager->saveArtifact('audit', 'log', $capturedContent);
+        $artifactManager->saveArtifact('audit_log.txt', $capturedContent, [
+            'service' => 'audit',
+            'type' => 'log',
+            'command' => 'perimeter:audit'
+        ]);
         
         // Also display the captured output to console
         $this->output->write($capturedContent);

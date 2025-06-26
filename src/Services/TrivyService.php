@@ -685,7 +685,11 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
             $process->run();
             
             if ($process->isSuccessful()) {
-                $artifactManager->saveArtifact('trivy', 'version', $process->getOutput());
+                $artifactManager->saveArtifact('trivy_version.txt', $process->getOutput(), [
+                    'service' => 'trivy',
+                    'type' => 'version',
+                    'command' => 'trivy --version'
+                ]);
             }
             
             // Save database info
@@ -696,7 +700,11 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
             if ($process->isSuccessful()) {
                 $output = $process->getOutput();
                 if (!empty($output)) {
-                    $artifactManager->saveArtifact('trivy', 'scan_output', $output);
+                    $artifactManager->saveArtifact('trivy_scan_output.txt', $output, [
+                        'service' => 'trivy',
+                        'type' => 'scan_output',
+                        'command' => 'trivy image --list-all-pkgs --quiet alpine:latest'
+                    ]);
                 }
             }
         } catch (\Exception $e) {

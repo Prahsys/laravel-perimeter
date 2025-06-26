@@ -36,14 +36,13 @@ class ArtifactManager
     /**
      * Save an artifact for the current audit
      */
-    public function saveArtifact(string $service, string $type, string $content, array $metadata = []): ?string
+    public function saveArtifact(string $relativePath, string $content, array $metadata = []): ?string
     {
         if (!$this->auditPath) {
             return null;
         }
 
-        $filename = $this->generateArtifactFilename($service, $type);
-        $filepath = $this->auditPath . '/' . $filename;
+        $filepath = $this->auditPath . '/' . $relativePath;
 
         // Save the main content
         $this->disk->put($filepath, $content);
@@ -52,8 +51,7 @@ class ArtifactManager
         if (!empty($metadata)) {
             $metadataFile = $filepath . '.meta.json';
             $this->disk->put($metadataFile, json_encode([
-                'service' => $service,
-                'type' => $type,
+                'relative_path' => $relativePath,
                 'timestamp' => now()->toISOString(),
                 'audit_id' => $this->auditId,
                 'file_size' => strlen($content),
@@ -61,7 +59,7 @@ class ArtifactManager
             ], JSON_PRETTY_PRINT));
         }
 
-        Log::debug("Artifact saved: {$filename}");
+        Log::debug("Artifact saved: {$relativePath}");
 
         return $filepath;
     }
@@ -69,32 +67,29 @@ class ArtifactManager
     /**
      * Save raw command output as an artifact
      */
-    public function saveCommandOutput(string $service, string $command, string $output, int $exitCode = 0): ?string
+    public function saveCommandOutput(string $relativePath, string $command, string $output, int $exitCode = 0): ?string
     {
-
-        $sanitizedCommand = preg_replace('/[^a-zA-Z0-9_-]/', '_', $command);
-        $filename = "{$service}_command_{$sanitizedCommand}.txt";
-        $filepath = $this->auditPath . '/' . $filename;
-
         $content = "# Command: {$command}\n";
         $content .= "# Exit Code: {$exitCode}\n";
         $content .= "# Timestamp: " . now()->toISOString() . "\n";
         $content .= "# Audit ID: {$this->auditId}\n";
         $content .= "\n" . $output;
 
-        $this->disk->put($filepath, $content);
-
-        return $filepath;
+        return $this->saveArtifact($relativePath, $content, [
+            'type' => 'command_output',
+            'command' => $command,
+            'exit_code' => $exitCode,
+        ]);
     }
 
     /**
      * Save structured data as JSON artifact
      */
-    public function saveJsonArtifact(string $service, string $type, array $data): ?string
+    public function saveJsonArtifact(string $relativePath, array $data): ?string
     {
         $content = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 
-        return $this->saveArtifact($service, $type, $content, [
+        return $this->saveArtifact($relativePath, $content, [
             'format' => 'json',
             'records_count' => is_array($data) ? count($data) : null,
         ]);
@@ -265,16 +260,6 @@ class ArtifactManager
         }
     }
 
-    /**
-     * Generate artifact filename
-     */
-    protected function generateArtifactFilename(string $service, string $type): string
-    {
-        $timestamp = now()->format('His'); // HHMMSS
-        $sanitizedType = preg_replace('/[^a-zA-Z0-9_-]/', '_', $type);
-
-        return "{$service}_{$sanitizedType}_{$timestamp}.txt";
-    }
 
     /**
      * Create audit metadata file
