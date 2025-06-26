@@ -1,0 +1,57 @@
+{
+    "audit_id": "2025-06-26_16-39-16_685d77b4ea317",
+    "completed_at": "2025-06-26T16:39:29.613102Z",
+    "summary": {
+        "services_audited": [
+            "systemaudit",
+            "clamav",
+            "falco",
+            "trivy",
+            "ufw",
+            "fail2ban"
+        ],
+        "total_issues": 1070,
+        "issues_by_severity": {
+            "emergency": 0,
+            "critical": 1,
+            "high": 0,
+            "medium": 1069,
+            "low": 0,
+            "info": 0
+        },
+        "completed_at": "2025-06-26 16:39:29",
+        "artifacts_note": "This audit created artifacts containing detailed security data and command outputs for audit trail and compliance purposes."
+    },
+    "artifacts": [
+        {
+            "filename": "audit_log_163929.txt",
+            "size": 1941,
+            "path": "perimeter\/audits\/2025-06-26\/2025-06-26_16-39-16_685d77b4ea317\/audit_log_163929.txt",
+            "modified": "2025-06-26T16:39:29.000000Z"
+        },
+        {
+            "filename": "clamav_log_163921.txt",
+            "size": 6273,
+            "path": "perimeter\/audits\/2025-06-26\/2025-06-26_16-39-16_685d77b4ea317\/clamav_log_163921.txt",
+            "modified": "2025-06-26T16:39:21.000000Z"
+        },
+        {
+            "filename": "trivy_scan_output_163922.txt",
+            "size": 885,
+            "path": "perimeter\/audits\/2025-06-26\/2025-06-26_16-39-16_685d77b4ea317\/trivy_scan_output_163922.txt",
+            "modified": "2025-06-26T16:39:22.000000Z"
+        },
+        {
+            "filename": "trivy_version_163921.txt",
+            "size": 210,
+            "path": "perimeter\/audits\/2025-06-26\/2025-06-26_16-39-16_685d77b4ea317\/trivy_version_163921.txt",
+            "modified": "2025-06-26T16:39:21.000000Z"
+        },
+        {
+            "filename": "ufw_status_163929.txt",
+            "size": 794,
+            "path": "perimeter\/audits\/2025-06-26\/2025-06-26_16-39-16_685d77b4ea317\/ufw_status_163929.txt",
+            "modified": "2025-06-26T16:39:29.000000Z"
+        }
+    ]
+}

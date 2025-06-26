@@ -50,14 +50,10 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
                 // Use Trivy to scan the file or directory
                 // --format json: output in JSON format
                 // --severity: only show vulnerabilities with severity >= threshold
-                $scanCommand = sprintf(
-                    'trivy fs --format json --severity %s %s',
-                    escapeshellarg($threshold),
-                    escapeshellarg($path)
-                );
-
-                $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
-                $process->setTimeout(300); // 5 minutes timeout for large directories
+                $process = new \Symfony\Component\Process\Process([
+                    'trivy', 'fs', '--scanners', 'vuln', '--format', 'json', '--severity', $threshold, $path,
+                ]);
+                $process->setTimeout($this->config['scan_timeout'] ?? 900); // Configurable timeout for large directories
                 $process->run();
 
                 if ($process->isSuccessful()) {
@@ -102,21 +98,28 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
             // Use appropriate scanning command based on environment
             if (Perimeter::isRunningInContainer()) {
                 // For containers, scan the base image
-                $scanCommand = sprintf(
-                    'trivy image --scanners vuln --format json --severity %s %s:latest',
-                    escapeshellarg($threshold),
-                    escapeshellarg($osName)
-                );
+                $process = new \Symfony\Component\Process\Process([
+                    'trivy', 'image', '--scanners', 'vuln', '--format', 'json', '--severity', $threshold, $osName.':latest',
+                ]);
             } else {
-                // For normal systems, scan the OS packages
-                $scanCommand = sprintf(
-                    'trivy rootfs --format json --severity %s /',
-                    escapeshellarg($threshold)
-                );
-            }
+                // For normal systems, scan the OS packages with minimal exclusions for performance
+                $excludePaths = $this->config['exclude_paths'] ?? [
+                    '/proc', '/sys', '/dev', '/run', '/tmp',
+                ];
 
-            $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
-            $process->setTimeout(300); // 5 minutes timeout for large scans
+                $processArgs = ['trivy', 'rootfs', '--format', 'json', '--severity', $threshold];
+
+                // Add skip paths for performance (only critical system directories)
+                foreach ($excludePaths as $excludePath) {
+                    $processArgs[] = '--skip-dirs';
+                    $processArgs[] = $excludePath;
+                }
+
+                $processArgs[] = '/';
+
+                $process = new \Symfony\Component\Process\Process($processArgs);
+            }
+            $process->setTimeout($this->config['scan_timeout'] ?? 1800); // Extended to 30 minutes for full system scans
             $process->run();
 
             if ($process->isSuccessful()) {
@@ -156,13 +159,9 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
             $threshold = $this->config['severity_threshold'] ?? 'MEDIUM';
 
             // Use Trivy to directly scan the file
-            $scanCommand = sprintf(
-                'trivy fs --format json --severity %s %s',
-                escapeshellarg($threshold),
-                escapeshellarg($filePath)
-            );
-
-            $process = new \Symfony\Component\Process\Process(explode(' ', $scanCommand));
+            $process = new \Symfony\Component\Process\Process([
+                'trivy', 'fs', '--format', 'json', '--severity', $threshold, $filePath,
+            ]);
             $process->setTimeout(120);
             $process->run();
 
@@ -395,108 +394,97 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
     public function install(array $options = []): bool
     {
         try {
-            Log::info('Installing Trivy with minimal configuration');
+            Log::info('Starting Trivy installation...');
 
             // Check if already installed and not forcing reinstall
             if ($this->isInstalled() && ! ($options['force'] ?? false)) {
-                Log::info('Trivy is already installed. Use --force to reinstall.');
+                Log::info('Trivy is already installed');
 
                 return true;
             }
 
-            // Store force flag if provided
-            if ($options['force'] ?? false) {
-                $this->config['force'] = true;
-            }
-
             // Create required directories
-            $this->mkdir_p('/var/log/trivy', 0755);
-            $this->mkdir_p('/var/log/trivy/.cache', 0755);
+            Log::info('Creating Trivy directories...');
+            $this->ensureDirectoriesExist();
 
-            // Configure Trivy repository
-            Log::info('Configuring Trivy repository');
+            // Install Trivy package
+            Log::info('Installing Trivy package...');
+            $this->installTrivyPackage();
 
-            // Determine OS distribution for installation
-            $distro = 'unknown';
-            if (file_exists('/etc/os-release')) {
-                $osRelease = file_get_contents('/etc/os-release');
-                if (preg_match('/VERSION_CODENAME=([a-z]+)/', $osRelease, $matches)) {
-                    $distro = $matches[1];
-                }
+            // Copy configuration files
+            Log::info('Configuring Trivy services...');
+            $this->copySystemdServices();
+            $this->copyUtilityScripts();
+
+            // Enable and start services
+            if ($options['start'] ?? true) {
+                Log::info('Enabling Trivy services...');
+                $this->startServices();
             }
 
-            // Use lsb_release if available
-            $process = new \Symfony\Component\Process\Process(['which', 'lsb_release']);
-            $process->run();
-            if ($process->isSuccessful()) {
-                $process = new \Symfony\Component\Process\Process(['lsb_release', '-sc']);
-                $process->run();
-                if ($process->isSuccessful()) {
-                    $distro = trim($process->getOutput());
-                }
-            }
+            // Download initial database
+            Log::info('Downloading vulnerability database...');
+            $this->downloadDatabase();
 
-            // Add the Trivy repository
-            $repoProcess = new \Symfony\Component\Process\Process([
-                'bash', '-c',
-                "echo \"deb [trusted=yes] https://aquasecurity.github.io/trivy-repo/deb $distro main\" | tee -a /etc/apt/sources.list.d/trivy.list",
-            ]);
-            $repoProcess->run();
+            // Verify installation
+            if ($this->isInstalled()) {
+                Log::info('Trivy installation completed successfully');
 
-            // Install Trivy
-            Log::info('Installing Trivy package');
-            $process = new \Symfony\Component\Process\Process(['apt-get', 'update']);
-            $process->run();
-
-            $process = new \Symfony\Component\Process\Process(['apt-get', 'install', '-y', 'trivy']);
-            $process->setTimeout(300);
-            $process->run();
-
-            if (! $process->isSuccessful()) {
-                Log::error('Failed to install Trivy: '.$process->getErrorOutput());
+                return true;
+            } else {
+                Log::error('Trivy installation verification failed');
 
                 return false;
             }
 
-            // Copy systemd service files
-            $this->copySystemdServices();
-
-            // Copy scanning script
-            $this->copyScanningScript();
-
-            // Enable and start service
-            Log::info('Enabling and starting Trivy database update service');
-            $process = new \Symfony\Component\Process\Process(['systemctl', 'daemon-reload']);
-            $process->run();
-
-            $process = new \Symfony\Component\Process\Process(['systemctl', 'enable', 'trivy-db-update.timer']);
-            $process->run();
-
-            $process = new \Symfony\Component\Process\Process(['systemctl', 'start', 'trivy-db-update.timer']);
-            $process->run();
-
-            // Initial database download
-            Log::info('Downloading vulnerability database (this may take a while)');
-            $process = new \Symfony\Component\Process\Process(['trivy', 'image', '--download-db-only']);
-            $process->setTimeout(600); // 10 minutes for initial database download
-            $process->run();
-
-            return true;
         } catch (\Exception $e) {
-            Log::error('Error installing Trivy: '.$e->getMessage());
+            Log::error('Trivy installation failed: '.$e->getMessage());
 
             return false;
         }
     }
 
     /**
-     * Create directory with parents if it doesn't exist
+     * Ensure required directories exist
      */
-    protected function mkdir_p(string $dir, int $mode = 0755): void
+    protected function ensureDirectoriesExist(): void
     {
-        if (! is_dir($dir)) {
-            mkdir($dir, $mode, true);
-            chmod($dir, $mode);
+        $directories = [
+            '/var/log/trivy',
+            '/var/log/trivy/.cache',
+        ];
+
+        foreach ($directories as $dir) {
+            if (! is_dir($dir)) {
+                mkdir($dir, 0755, true);
+                Log::info("Created directory: $dir");
+            }
+        }
+    }
+
+    /**
+     * Install Trivy package
+     */
+    protected function installTrivyPackage(): void
+    {
+        // Create Trivy repository
+        $repoConfig = 'deb [trusted=yes] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main';
+        file_put_contents('/etc/apt/sources.list.d/trivy.list', $repoConfig."\n");
+
+        // Update package list and install
+        $process = new \Symfony\Component\Process\Process(['apt-get', 'update']);
+        $process->run();
+
+        if (! $process->isSuccessful()) {
+            throw new \Exception('Failed to update package list: '.$process->getErrorOutput());
+        }
+
+        $process = new \Symfony\Component\Process\Process(['apt-get', 'install', '-y', 'trivy']);
+        $process->setTimeout(300);
+        $process->run();
+
+        if (! $process->isSuccessful()) {
+            throw new \Exception('Failed to install Trivy: '.$process->getErrorOutput());
         }
     }
 
@@ -505,55 +493,87 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
      */
     protected function copySystemdServices(): void
     {
-        Log::info('Copying Trivy systemd service files');
-
-        // Find template files in different possible locations
         $locations = [
-            // Docker environment location
             '/package/docker/systemd/trivy',
-            // Local package location
             base_path('packages/prahsys-laravel-perimeter/docker/systemd/trivy'),
-            // Vendor package location
             base_path('vendor/prahsys/perimeter/docker/systemd/trivy'),
         ];
 
-        // Copy each service file if it exists in template locations
+        $serviceFiles = [
+            'trivy-db-update.service' => '/etc/systemd/system/trivy-db-update.service',
+            'trivy-db-update.timer' => '/etc/systemd/system/trivy-db-update.timer',
+        ];
+
         foreach ($locations as $location) {
-            if (file_exists($location.'/trivy-db-update.service') &&
-                file_exists($location.'/trivy-db-update.timer')) {
-                Log::info("Copying systemd files from $location");
-                copy($location.'/trivy-db-update.service', '/etc/systemd/system/trivy-db-update.service');
-                copy($location.'/trivy-db-update.timer', '/etc/systemd/system/trivy-db-update.timer');
+            if (is_dir($location)) {
+                foreach ($serviceFiles as $source => $target) {
+                    $sourcePath = $location.'/'.$source;
+                    if (file_exists($sourcePath)) {
+                        copy($sourcePath, $target);
+                        Log::info("Copied $source to $target");
+                    }
+                }
                 break;
             }
         }
     }
 
     /**
-     * Copy scanning script
+     * Copy utility scripts
      */
-    protected function copyScanningScript(): void
+    protected function copyUtilityScripts(): void
     {
-        Log::info('Copying Trivy scanning script');
-
-        // Find scanning script in different possible locations
         $locations = [
-            // Docker environment location
             '/package/docker/bin',
-            // Local package location
             base_path('packages/prahsys-laravel-perimeter/docker/bin'),
-            // Vendor package location
             base_path('vendor/prahsys/perimeter/docker/bin'),
         ];
 
-        // Copy script if it exists in template locations
         foreach ($locations as $location) {
-            if (file_exists($location.'/scan-vulnerabilities')) {
-                Log::info("Copying scanning script from $location");
-                copy($location.'/scan-vulnerabilities', '/usr/local/bin/scan-vulnerabilities');
+            $scriptPath = $location.'/scan-vulnerabilities';
+            if (file_exists($scriptPath)) {
+                copy($scriptPath, '/usr/local/bin/scan-vulnerabilities');
                 chmod('/usr/local/bin/scan-vulnerabilities', 0755);
+                Log::info('Copied scan-vulnerabilities script');
                 break;
             }
+        }
+    }
+
+    /**
+     * Start Trivy services
+     */
+    protected function startServices(): void
+    {
+        $process = new \Symfony\Component\Process\Process(['systemctl', 'daemon-reload']);
+        $process->run();
+
+        $process = new \Symfony\Component\Process\Process(['systemctl', 'enable', 'trivy-db-update.timer']);
+        $process->run();
+
+        $process = new \Symfony\Component\Process\Process(['systemctl', 'start', 'trivy-db-update.timer']);
+        $process->run();
+
+        if ($process->isSuccessful()) {
+            Log::info('Trivy database update timer enabled and started');
+        } else {
+            Log::warning('Failed to start Trivy timer: '.$process->getErrorOutput());
+        }
+    }
+
+    /**
+     * Download vulnerability database
+     */
+    protected function downloadDatabase(): void
+    {
+        $process = new \Symfony\Component\Process\Process(['trivy', 'image', '--download-db-only']);
+        $process->setTimeout(600); // 10 minutes for database download
+        $process->run();
+
+        if ($process->isSuccessful()) {
+            Log::info('Trivy vulnerability database downloaded successfully');
+        } else {
+            Log::warning('Failed to download vulnerability database: '.$process->getErrorOutput());
         }
     }
 
@@ -571,6 +591,54 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
     public function setConfig(array $config): void
     {
         $this->config = $config;
+    }
+
+    /**
+     * Run service-specific audit checks.
+     * Perform Trivy vulnerability scanning during the audit process.
+     */
+    protected function runServiceAuditTasks($output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): array
+    {
+        if (! $this->isEnabled() || ! $this->isInstalled() || ! $this->isConfigured()) {
+            return [];
+        }
+
+        // Save Trivy log artifacts if artifact manager is provided
+        if ($artifactManager) {
+            $this->saveServiceArtifacts($artifactManager);
+        }
+
+        if ($output) {
+            $output->writeln('  <fg=yellow>🔍 Scanning dependencies and system packages for vulnerabilities...</>');
+        }
+
+        // Perform the actual vulnerability scan
+        $scanResults = $this->scanDependencies();
+
+        // Convert scan results to SecurityEventData objects
+        $securityEvents = [];
+        foreach ($scanResults as $result) {
+            $securityEvents[] = $this->resultToSecurityEventData(array_merge($result, [
+                'timestamp' => now(),
+                'scan_id' => null,
+            ]));
+        }
+
+        if ($output) {
+            if (empty($securityEvents)) {
+                $output->writeln('  <fg=green>✅ No vulnerabilities detected</>');
+            } else {
+                $severityCounts = array_count_values(array_column($scanResults, 'severity'));
+                $criticalHigh = ($severityCounts['CRITICAL'] ?? 0) + ($severityCounts['HIGH'] ?? 0);
+                if ($criticalHigh > 0) {
+                    $output->writeln('  <fg=red>⚠️  '.count($securityEvents)." vulnerabilities detected ($criticalHigh critical/high)</>");
+                } else {
+                    $output->writeln('  <fg=yellow>⚠️  '.count($securityEvents).' vulnerabilities detected (medium/low severity)</>');
+                }
+            }
+        }
+
+        return $securityEvents;
     }
 
     /**
@@ -607,5 +675,43 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
             scan_id: $scanId,
             details: $details
         );
+    }
+
+    /**
+     * Save service artifacts for audit trail
+     */
+    protected function saveServiceArtifacts(\Prahsys\Perimeter\Services\ArtifactManager $artifactManager): void
+    {
+        try {
+            // Run a simple trivy scan to capture output
+            $process = new \Symfony\Component\Process\Process(['trivy', '--version']);
+            $process->run();
+
+            if ($process->isSuccessful()) {
+                $artifactManager->saveArtifact('trivy_version.txt', $process->getOutput(), [
+                    'service' => 'trivy',
+                    'type' => 'version',
+                    'command' => 'trivy --version',
+                ]);
+            }
+
+            // Save database info
+            $process = new \Symfony\Component\Process\Process(['trivy', 'image', '--list-all-pkgs', '--quiet', 'alpine:latest']);
+            $process->setTimeout(60);
+            $process->run();
+
+            if ($process->isSuccessful()) {
+                $output = $process->getOutput();
+                if (! empty($output)) {
+                    $artifactManager->saveArtifact('trivy_scan_output.txt', $output, [
+                        'service' => 'trivy',
+                        'type' => 'scan_output',
+                        'command' => 'trivy image --list-all-pkgs --quiet alpine:latest',
+                    ]);
+                }
+            }
+        } catch (\Exception $e) {
+            // Skip if can't run trivy
+        }
     }
 }

@@ -125,153 +125,237 @@ class Fail2banService extends AbstractSecurityService implements IntrusionPreven
     public function install(array $options = []): bool
     {
         try {
-            // Debug logging for installation
-            Log::info('Starting Fail2Ban installation with options: '.json_encode($options));
+            Log::info('Starting Fail2Ban installation...');
 
-            if ($this->isInstalled()) {
+            // Check if already installed and not forcing reinstall
+            if ($this->isInstalled() && ! ($options['force'] ?? false)) {
                 Log::info('Fail2Ban is already installed');
 
-                // If force option is set, we should proceed with configuration
-                if (($options['force'] ?? false) && ($options['configure'] ?? false)) {
-                    Log::info('Force flag set - will reconfigure Fail2ban with specified parameters');
-                    // Continue with configuration below
-                } else {
-                    // If already installed but not running, start it
-                    if (! $this->isConfigured() && ($options['start'] ?? true)) {
-                        Log::info('Fail2Ban installed but not configured, attempting to start service');
-
-                        return $this->startService();
-                    }
-
-                    // If not forced, exit early
-                    if (! ($options['force'] ?? false)) {
-                        return true;
-                    }
-                }
+                return true;
             }
 
-            Log::info('Installing Fail2Ban...');
+            // Install Fail2ban package
+            Log::info('Installing Fail2Ban package...');
+            $this->installFail2banPackage();
 
-            // Check system type and install accordingly
-            if ($this->isDebian()) {
-                Log::info('Detected Debian-based system');
+            // Create required directories and files
+            Log::info('Creating Fail2Ban directories and files...');
+            $this->ensureDirectoriesExist();
+            $this->createAuthLogFiles();
 
-                $process = new Process(['apt-get', 'update']);
-                $process->setTimeout(300);
-                $process->run();
-                Log::info('apt-get update completed with status: '.($process->isSuccessful() ? 'SUCCESS' : 'FAILED'));
+            // Copy configuration files
+            Log::info('Configuring Fail2Ban...');
+            $this->copyConfigurationFiles($options);
 
-                if (! $process->isSuccessful()) {
-                    Log::error('apt-get update failed: '.$process->getErrorOutput());
-                }
+            // Copy utility scripts and systemd services
+            Log::info('Installing Fail2Ban utilities...');
+            $this->copyUtilityScripts();
+            $this->copySystemdServices();
 
-                Log::info('Running fail2ban installation with noninteractive frontend');
-                // Use DEBIAN_FRONTEND=noninteractive to avoid prompts
-                $env = ['DEBIAN_FRONTEND' => 'noninteractive'];
+            // Enable and start services
+            if ($options['start'] ?? true) {
+                Log::info('Starting Fail2Ban services...');
+                $this->startServices();
+            }
 
-                // First check if /etc/fail2ban/action.d/dummy.conf exists and back it up if needed
-                if (file_exists('/etc/fail2ban/action.d/dummy.conf')) {
-                    Log::info('Backing up existing dummy.conf file');
-                    $backupProcess = new Process(['mv', '/etc/fail2ban/action.d/dummy.conf', '/etc/fail2ban/action.d/dummy.conf.bak']);
-                    $backupProcess->run();
-                }
+            // Verify installation
+            if ($this->isInstalled()) {
+                Log::info('Fail2Ban installation completed successfully');
 
-                // Install fail2ban with -y and additional options to avoid prompts
-                $process = new Process(['apt-get', 'install', '-y', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'fail2ban']);
-                $process->setTimeout(300);
-                $process->setEnv($env);
-                $process->run();
-
-                if (! $process->isSuccessful()) {
-                    Log::error('Failed to install Fail2Ban: '.$process->getErrorOutput());
-                    Log::error('Full output: '.$process->getOutput());
-
-                    return false;
-                }
-
-                Log::info('Fail2ban package installation completed successfully');
-            } elseif ($this->isCentOS()) {
-                $process = new Process(['yum', 'install', '-y', 'epel-release']);
-                $process->setTimeout(300);
-                $process->run();
-
-                $process = new Process(['yum', 'install', '-y', 'fail2ban', 'fail2ban-systemd']);
-                $process->setTimeout(300);
-                $process->run();
-
-                if (! $process->isSuccessful()) {
-                    Log::error('Failed to install Fail2Ban: '.$process->getErrorOutput());
-
-                    return false;
-                }
+                return true;
             } else {
-                Log::error('Unsupported operating system for automatic Fail2Ban installation');
+                Log::error('Fail2Ban installation verification failed');
 
                 return false;
             }
 
-            Log::info('Fail2Ban installed successfully');
-
-            // For container environments, always create a configuration
-            // that works well in containers
-            $isContainerMode = $options['container_mode'] ?? \Prahsys\Perimeter\Facades\Perimeter::isRunningInContainer();
-
-            // Set configuration values from options
-            if (isset($options['ban_time'])) {
-                $this->config['ban_time'] = (int) $options['ban_time'];
-                Log::info("Setting ban_time to {$options['ban_time']} seconds");
-            }
-
-            if (isset($options['find_time'])) {
-                $this->config['find_time'] = (int) $options['find_time'];
-                Log::info("Setting find_time to {$options['find_time']} seconds");
-            }
-
-            if (isset($options['max_retry'])) {
-                $this->config['max_retry'] = (int) $options['max_retry'];
-                Log::info("Setting max_retry to {$options['max_retry']} attempts");
-            }
-
-            // Set force option if needed
-            if ($options['force'] ?? false) {
-                $this->config['force'] = true;
-            }
-
-            // Create basic configuration if requested
-            if ($options['configure'] ?? true) {
-                $this->createBasicConfig();
-
-                // If in container mode, ensure we have proper auth log files
-                if ($isContainerMode && ($options['create_auth_log'] ?? true)) {
-                    $authLogPath = '/var/log/auth/auth.log';
-
-                    // Create dummy log files and actions
-                    $this->createContainerFriendlyActions($authLogPath);
-
-                    Log::info('Created container-friendly Fail2Ban configuration');
-                }
-            }
-
-            // Start Fail2Ban if requested
-            if ($options['start'] ?? true) {
-                $startResult = $this->startService();
-
-                // In container mode, we consider it a success even if the service doesn't fully start
-                // This is because in some containers, systemd might not be available
-                if (! $startResult && $isContainerMode) {
-                    Log::info('Container mode: Considering Fail2Ban setup successful even without full service start');
-
-                    return true;
-                }
-
-                return $startResult;
-            }
-
-            return true;
         } catch (\Exception $e) {
-            Log::error('Error installing Fail2Ban: '.$e->getMessage());
+            Log::error('Fail2Ban installation failed: '.$e->getMessage());
 
             return false;
+        }
+    }
+
+    /**
+     * Install Fail2ban package
+     */
+    protected function installFail2banPackage(): void
+    {
+        $process = new \Symfony\Component\Process\Process(['apt-get', 'update']);
+        $process->run();
+
+        if (! $process->isSuccessful()) {
+            throw new \Exception('Failed to update package list: '.$process->getErrorOutput());
+        }
+
+        $process = new \Symfony\Component\Process\Process(['apt-get', 'install', '-y', 'fail2ban']);
+        $process->setTimeout(300);
+        $process->run();
+
+        if (! $process->isSuccessful()) {
+            throw new \Exception('Failed to install Fail2Ban: '.$process->getErrorOutput());
+        }
+    }
+
+    /**
+     * Ensure required directories exist
+     */
+    protected function ensureDirectoriesExist(): void
+    {
+        $directories = [
+            '/var/log/fail2ban',
+            '/var/log/auth',
+            '/var/run/fail2ban',
+            '/etc/fail2ban/action.d',
+        ];
+
+        foreach ($directories as $dir) {
+            if (! is_dir($dir)) {
+                mkdir($dir, 0755, true);
+                Log::info("Created directory: $dir");
+            }
+        }
+    }
+
+    /**
+     * Create auth log files
+     */
+    protected function createAuthLogFiles(): void
+    {
+        $authLogPath = '/var/log/auth/auth.log';
+
+        // Create auth.log if it doesn't exist
+        if (! file_exists($authLogPath)) {
+            touch($authLogPath);
+        }
+
+        // Create symlink if needed
+        if (! file_exists('/var/log/auth.log')) {
+            symlink($authLogPath, '/var/log/auth.log');
+        }
+
+        // Add sample log entry if empty
+        if (filesize($authLogPath) == 0) {
+            $sampleEntry = date('c')." localhost sshd[12345]: Failed password for invalid user baduser from 192.168.1.100 port 12345 ssh2\n";
+            file_put_contents($authLogPath, $sampleEntry);
+        }
+    }
+
+    /**
+     * Copy configuration files
+     */
+    protected function copyConfigurationFiles(array $options): void
+    {
+        $locations = [
+            '/package/docker/config/fail2ban',
+            base_path('packages/prahsys-laravel-perimeter/docker/config/fail2ban'),
+            base_path('vendor/prahsys/perimeter/docker/config/fail2ban'),
+        ];
+
+        foreach ($locations as $location) {
+            if (is_dir($location)) {
+                // Copy dummy.conf
+                $dummySource = $location.'/dummy.conf';
+                if (file_exists($dummySource)) {
+                    copy($dummySource, '/etc/fail2ban/action.d/dummy.conf');
+                    Log::info('Copied dummy.conf');
+                }
+
+                // Process jail.local template with parameters
+                $jailSource = $location.'/jail.local';
+                if (file_exists($jailSource)) {
+                    $banTime = $options['ban_time'] ?? $this->config['ban_time'] ?? 3600;
+                    $findTime = $options['find_time'] ?? $this->config['find_time'] ?? 600;
+                    $maxRetry = $options['max_retry'] ?? $this->config['max_retry'] ?? 5;
+                    $authLogPath = $options['auth_log_path'] ?? '/var/log/auth/auth.log';
+
+                    $jailContent = file_get_contents($jailSource);
+                    $jailContent = str_replace('bantime = 3600', "bantime = $banTime", $jailContent);
+                    $jailContent = str_replace('findtime = 600', "findtime = $findTime", $jailContent);
+                    $jailContent = str_replace('maxretry = 5', "maxretry = $maxRetry", $jailContent);
+                    $jailContent = str_replace('logpath = /var/log/auth/auth.log', "logpath = $authLogPath", $jailContent);
+
+                    file_put_contents('/etc/fail2ban/jail.local', $jailContent);
+                    Log::info('Configured jail.local with custom parameters');
+                }
+
+                // Copy PHP-FPM filter
+                $phpFpmSource = $location.'/php-fpm.conf';
+                if (file_exists($phpFpmSource)) {
+                    copy($phpFpmSource, '/etc/fail2ban/filter.d/php-fpm.conf');
+                    Log::info('Copied php-fpm.conf filter');
+                }
+
+                break;
+            }
+        }
+
+        // Create banned.log file
+        touch('/var/log/fail2ban/banned.log');
+        chmod('/var/log/fail2ban/banned.log', 0644);
+    }
+
+    /**
+     * Copy utility scripts
+     */
+    protected function copyUtilityScripts(): void
+    {
+        $locations = [
+            '/package/docker/bin',
+            base_path('packages/prahsys-laravel-perimeter/docker/bin'),
+            base_path('vendor/prahsys/perimeter/docker/bin'),
+        ];
+
+        foreach ($locations as $location) {
+            $scriptPath = $location.'/fail2ban-status';
+            if (file_exists($scriptPath)) {
+                copy($scriptPath, '/usr/local/bin/fail2ban-status');
+                chmod('/usr/local/bin/fail2ban-status', 0755);
+                Log::info('Copied fail2ban-status script');
+                break;
+            }
+        }
+    }
+
+    /**
+     * Copy systemd service files
+     */
+    protected function copySystemdServices(): void
+    {
+        $locations = [
+            '/package/docker/systemd/fail2ban',
+            base_path('packages/prahsys-laravel-perimeter/docker/systemd/fail2ban'),
+            base_path('vendor/prahsys/perimeter/docker/systemd/fail2ban'),
+        ];
+
+        foreach ($locations as $location) {
+            $servicePath = $location.'/fail2ban.service';
+            if (file_exists($servicePath)) {
+                copy($servicePath, '/etc/systemd/system/fail2ban.service');
+                Log::info('Copied fail2ban.service');
+                break;
+            }
+        }
+    }
+
+    /**
+     * Start Fail2ban services
+     */
+    protected function startServices(): void
+    {
+        $process = new \Symfony\Component\Process\Process(['systemctl', 'daemon-reload']);
+        $process->run();
+
+        $process = new \Symfony\Component\Process\Process(['systemctl', 'enable', 'fail2ban.service']);
+        $process->run();
+
+        $process = new \Symfony\Component\Process\Process(['systemctl', 'start', 'fail2ban.service']);
+        $process->run();
+
+        if ($process->isSuccessful()) {
+            Log::info('Fail2Ban service enabled and started');
+        } else {
+            Log::warning('Failed to start Fail2Ban service: '.$process->getErrorOutput());
         }
     }
 
@@ -351,6 +435,10 @@ class Fail2banService extends AbstractSecurityService implements IntrusionPreven
             'error' => $error,
         ];
 
+        // Fail2ban can be functional even when not actively running (intrusion prevention is optional)
+        // Consider it functional if installed and package is enabled
+        $functional = $enabled && $installed;
+
         return new \Prahsys\Perimeter\Data\ServiceStatusData(
             name: 'fail2ban',
             enabled: $enabled,
@@ -358,7 +446,8 @@ class Fail2banService extends AbstractSecurityService implements IntrusionPreven
             configured: $configured,
             running: $running,
             message: $message,
-            details: $details
+            details: $details,
+            functional: $functional
         );
     }
 
@@ -737,7 +826,7 @@ class Fail2banService extends AbstractSecurityService implements IntrusionPreven
      * @param  \Illuminate\Console\OutputStyle|null  $output  Optional output interface to print to
      * @return array Array of SecurityEventData objects
      */
-    protected function performServiceSpecificAuditChecks($output = null): array
+    protected function runServiceAuditTasks($output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): array
     {
         $issues = [];
 

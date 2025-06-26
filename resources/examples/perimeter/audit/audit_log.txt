@@ -1,0 +1,71 @@
+
+SystemAudit
+-----------
+
+Security Updates Check
+----------------------
+
+Security Controls Check
+-----------------------
+
+ ! [CAUTION] SystemAudit: 2 security issues found                               
+
+  • [critical] 6 security updates available
+  • [medium] 1 security controls need attention
+
+ClamAV
+------
+
+  ⏳ Running ClamAV security scan...
+  💡 Watch scan progress with: tail -f /tmp/clamav-scan.log
+  🔍 Scanning 1 paths for malware...
+  ✅ No malware detected
+
+ [OK] ClamAV: No security issues found                                          
+
+
+Falco
+-----
+
+  🔍 Checking recent Falco security events...
+  ✅ No high-severity security events detected
+
+ [OK] Falco: No security issues found                                           
+
+
+Trivy
+-----
+
+  ⏳ Running Trivy security scan...
+  🔍 Scanning dependencies and system packages for vulnerabilities...
+  ⚠️  1067 vulnerabilities detected (medium/low severity)
+
+ ! [CAUTION] Trivy: 1067 security issues found                                  
+
+  • [medium] pam: libpam: Libpam vulnerable to read hashed password
+  • [medium] pam: Improper Hostname Interpretation in pam_access Leads to Access Control Bypass
+  • [medium] linux-pam: Linux-pam directory Traversal
+  • ... and 1064 more issues
+
+Ufw
+---
+
+  ⚪ Firewall is active and running
+  ⚪ Public services: 22 (SSH), 80 (HTTP), 443 (HTTPS)
+  ⚪ Restricted services: 22 (SSH)
+  ⚪ Closed services: 37959, 53 (DNS), 8000 (Dev-Server)
+  ⚠️  Port configuration issues:
+    - Restricted port 22 should not allow all traffic but has UFW rule allowing 'Anywhere'
+
+ ! [CAUTION] Ufw: 1 security issues found                                       
+
+  • [medium] Restricted port 22 should not allow all traffic but has UFW rule allowing 'Anywhere'
+
+Intrusion Prevention
+--------------------
+
+  ⚪ Active jails: sshd
+
+ [OK] Intrusion Prevention: No security issues found                            
+
+

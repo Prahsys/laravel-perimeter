@@ -14,7 +14,7 @@ class PerimeterMonitor extends Command
      */
     protected $signature = 'perimeter:monitor 
                             {--duration=0 : Duration in seconds (0 for indefinite)}
-                            {--service= : Specific service to monitor (default: all)}';
+                            {--services= : Specific services to monitor (comma-separated, default: all)}';
 
     /**
      * The console command description.
@@ -31,25 +31,30 @@ class PerimeterMonitor extends Command
     public function handle()
     {
         $duration = (int) $this->option('duration');
-        $serviceName = $this->option('service');
+        $servicesOption = $this->option('services');
+        $requestedServices = $servicesOption ? array_map('trim', explode(',', $servicesOption)) : null;
 
-        // Get all monitoring services or a specific one if requested
-        $monitoringServices = $this->getMonitoringServices($serviceName);
+        // Get all monitoring services or specific ones if requested
+        $monitoringServices = $this->getMonitoringServices($requestedServices);
 
         if (empty($monitoringServices)) {
-            $this->error('No monitoring services available'.
-                ($serviceName ? " (requested service: {$serviceName} not found or not enabled)" : ''));
+            $errorMsg = 'No monitoring services available';
+            if ($requestedServices) {
+                $requestedList = implode(', ', $requestedServices);
+                $errorMsg .= " (requested services: {$requestedList} not found or not enabled)";
+            }
+            $this->error($errorMsg);
 
             return 1;
         }
 
-        return $this->runMonitoring($monitoringServices, $duration);
+        return $this->runMonitoring($monitoringServices, $duration, $requestedServices);
     }
 
     /**
      * Get available monitoring services.
      */
-    protected function getMonitoringServices(?string $serviceName = null): array
+    protected function getMonitoringServices(?array $requestedServices = null): array
     {
         $serviceManager = app(\Prahsys\Perimeter\Services\ServiceManager::class);
         $allServices = $serviceManager->all();
@@ -71,7 +76,8 @@ class PerimeterMonitor extends Command
 
             // Check if it's a monitoring service
             if ($instance instanceof SecurityMonitoringServiceInterface) {
-                if ($serviceName && $name !== $serviceName) {
+                // Filter by specific services if requested
+                if ($requestedServices && ! in_array($name, $requestedServices)) {
                     continue;
                 }
 
@@ -85,9 +91,13 @@ class PerimeterMonitor extends Command
     /**
      * Run continuous monitoring.
      */
-    protected function runMonitoring(array $monitoringServices, int $duration): int
+    protected function runMonitoring(array $monitoringServices, int $duration, ?array $requestedServices = null): int
     {
         $this->info('Starting security monitoring...');
+        if ($requestedServices) {
+            $servicesList = implode(', ', $requestedServices);
+            $this->info("Monitoring services: <fg=cyan>{$servicesList}</>");
+        }
         if ($duration > 0) {
             $this->info("Will run for {$duration} seconds (press Ctrl+C to stop earlier)");
         } else {

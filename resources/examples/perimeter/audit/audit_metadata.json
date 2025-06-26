@@ -1,0 +1,11 @@
+{
+    "audit_id": "2025-06-26_16-39-16_685d77b4ea317",
+    "started_at": "2025-06-26T16:39:16.959607Z",
+    "hostname": "ee12e9c57121",
+    "php_version": "8.2.28",
+    "laravel_version": "11.45.1",
+    "perimeter_version": "1.0.0",
+    "disk": "local",
+    "root_path": "perimeter\/audits",
+    "completed_at": "2025-06-26T16:39:29.615036Z"
+}

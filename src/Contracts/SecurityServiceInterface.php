@@ -46,9 +46,10 @@ interface SecurityServiceInterface
      * Run audit checks specific to this service and output results.
      *
      * @param  \Illuminate\Console\OutputStyle|null  $output  Optional output interface to print to
+     * @param  \Prahsys\Perimeter\Services\ArtifactManager|null  $artifactManager  Optional artifact manager for saving audit data
      * @return \Prahsys\Perimeter\Data\ServiceAuditData Audit results with any issues found
      */
-    public function runServiceAudit(?OutputStyle $output = null): \Prahsys\Perimeter\Data\ServiceAuditData;
+    public function runServiceAudit(?OutputStyle $output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): \Prahsys\Perimeter\Data\ServiceAuditData;
 
     /**
      * Convert a service-specific result to a SecurityEventData instance.

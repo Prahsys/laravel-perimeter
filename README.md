@@ -2,6 +2,10 @@
 
 Comprehensive system-level security monitoring for Laravel applications, integrating malware protection, runtime behavioral analysis, vulnerability detection, intrusion prevention, and firewall management.
 
+[![Latest Version](https://img.shields.io/packagist/v/prahsys/laravel-perimeter.svg?style=flat-square)](https://packagist.org/packages/prahsys/laravel-perimeter)
+[![License](https://img.shields.io/packagist/l/prahsys/laravel-perimeter.svg?style=flat-square)](LICENSE)
+[![PHP Version](https://img.shields.io/packagist/php-v/prahsys/laravel-perimeter.svg?style=flat-square)](https://packagist.org/packages/prahsys/laravel-perimeter)
+
 ## Overview
 
 Laravel Perimeter provides comprehensive security monitoring at the infrastructure boundary by seamlessly integrating multiple industry-standard security tools into a unified package with Laravel-native interfaces, standardized APIs, and consolidated logging. It creates a multi-layered security perimeter around your application to detect and respond to various security threats.
@@ -11,7 +15,7 @@ Laravel Perimeter provides comprehensive security monitoring at the infrastructu
 ### 1. File Protection (ClamAV Integration)
 - Malware scanning with OnAccess real-time protection
 - Scheduled and on-demand scanning with configurable paths
-- Signature-based detection with regular database updates
+- Signature-based detection with automatic database updates
 - Integration with Laravel's file upload system
 - Configurable exclusion patterns for performance optimization
 
@@ -198,10 +202,10 @@ Perimeter provides comprehensive real-time security monitoring through two prima
 Falco provides kernel-level behavioral analysis to detect suspicious activities:
 
 ```bash
-# Start behavioral monitoring in real-time mode
-php artisan perimeter:monitor --service=falco --realtime
+# Start behavioral monitoring
+php artisan perimeter:monitor --services=falco
 
-# Or run as a system service (recommended for production)
+# Or run as a system service
 sudo systemctl enable falco
 sudo systemctl start falco
 ```
@@ -219,8 +223,8 @@ Falco monitoring provides:
 ClamAV provides real-time file system monitoring for malware:
 
 ```bash
-# Enable real-time malware monitoring
-php artisan perimeter:monitor --service=clamav --realtime
+# Enable malware monitoring
+php artisan perimeter:monitor --services=clamav
 ```
 
 ClamAV monitoring provides:
@@ -228,15 +232,15 @@ ClamAV monitoring provides:
 - Detection of malware, trojans, and other threats
 - On-access protection for uploads and other file operations
 - Signature-based detection with daily database updates
-- Low false-positive rate suitable for production systems
+- Low false-positive rate suitable for web applications
 
 #### Centralized Monitoring Dashboard
 
-For continuous monitoring in production, use Supervisor:
+For continuous monitoring, use Supervisor:
 
 ```ini
 [program:perimeter-monitor]
-command=php /path/to/your/artisan perimeter:monitor --realtime
+command=php /path/to/your/artisan perimeter:monitor
 autostart=true
 autorestart=true
 user=www-data
@@ -279,7 +283,15 @@ Perimeter::onThreatDetected(function ($securityEvent) {
 Perform a comprehensive security assessment across all protection layers:
 
 ```bash
+# Run audit on all enabled services
 php artisan perimeter:audit
+
+# Run audit only on specific services
+php artisan perimeter:audit --services=clamav,trivy
+php artisan perimeter:audit --services=ufw
+
+# Combine with other options
+php artisan perimeter:audit --services=clamav,falco --format=json
 ```
 
 This command:
@@ -292,7 +304,7 @@ This command:
 
 Options:
 - `--format=json` - Output in JSON format for automated processing
-- `--scan-paths=/custom/path` - Specify custom paths to scan
+- `--services=clamav,trivy` - Run audit only for specific services (comma-separated)
 
 ### Health Check
 
@@ -317,17 +329,16 @@ Monitor security events across all protection layers:
 # Point-in-time check of recent security events
 php artisan perimeter:monitor
 
-# Real-time continuous monitoring
-php artisan perimeter:monitor --realtime
+# Continuous monitoring
+php artisan perimeter:monitor
 
 # Service-specific monitoring
-php artisan perimeter:monitor --service=falco
+php artisan perimeter:monitor --services=falco
 ```
 
 Options:
-- `--realtime` - Run in real-time monitoring mode
-- `--duration=3600` - Duration in seconds for real-time mode (default: 1 hour)
-- `--service=name` - Focus on a specific security service (clamav, falco, fail2ban)
+- `--duration=3600` - Duration in seconds (default: indefinite)
+- `--services=clamav,falco` - Focus on specific security services (comma-separated)
 
 ### Reporting
 
@@ -353,9 +364,179 @@ Options:
 # Prune old security events and scan records
 php artisan perimeter:prune
 
-# Update security databases (ClamAV signatures, Trivy vulnerabilities)
+# Maintain security databases (ClamAV signatures, Trivy vulnerabilities)
 php artisan perimeter:update-databases
 ```
+
+## Audit Artifacts
+
+Laravel Perimeter automatically collects comprehensive audit artifacts during security audits, providing detailed compliance documentation and forensic evidence.
+
+### What Are Audit Artifacts?
+
+Audit artifacts are timestamped collections of security service outputs, logs, and system states captured during each security audit. These artifacts serve multiple purposes:
+
+- **Compliance Documentation**: Detailed records for security audits and compliance reporting
+- **Forensic Evidence**: Preserved system states and security tool outputs for incident investigation
+- **Historical Analysis**: Point-in-time snapshots of security posture for trend analysis
+- **Troubleshooting**: Detailed service outputs to diagnose security tool issues
+
+### Artifact Collection
+
+Every time you run `php artisan perimeter:audit`, the system automatically:
+
+1. **Captures Service Outputs**: Collects logs, scan results, and status information from all enabled security services
+2. **Records System State**: Documents firewall rules, service configurations, and system health
+3. **Generates Metadata**: Creates audit summaries with timestamps, service versions, and scan statistics
+4. **Compresses Archives**: Packages all artifacts into timestamped ZIP files for efficient storage
+
+Example artifacts include:
+- ClamAV scan logs and malware detection reports
+- Trivy vulnerability scan results and database information
+- UFW firewall status and rule configurations
+- Fail2ban intrusion logs and banned IP lists
+- Falco behavioral monitoring events
+- Complete audit command output (audit.log)
+
+### Storage Configuration
+
+Configure artifact storage in `config/perimeter.php`:
+
+```php
+'artifacts' => [
+    'disk' => env('PERIMETER_ARTIFACTS_DISK', 'local'),
+    'root_path' => env('PERIMETER_ARTIFACTS_ROOT_PATH', 'perimeter/audits'),
+    'retention_days' => env('PERIMETER_ARTIFACTS_RETENTION', 90),
+],
+```
+
+#### Storage Disk Options
+
+Use any Laravel storage disk for artifact storage:
+
+```php
+// Local storage (default)
+'disk' => 'local'
+
+// AWS S3 for distributed environments
+'disk' => 's3'
+
+// Custom disk for shared storage
+'disk' => 'audit_storage'
+```
+
+#### Environment Variables
+
+```dotenv
+# Storage configuration
+PERIMETER_ARTIFACTS_DISK=s3
+PERIMETER_ARTIFACTS_ROOT_PATH=compliance/security-audits
+PERIMETER_ARTIFACTS_RETENTION=365
+```
+
+### Distributed Environments
+
+For server clusters or distributed deployments, you can add machine identification to artifact paths to prevent conflicts:
+
+#### Option 1: Machine ID in Path
+
+```dotenv
+# Add server identifier to artifact path using hostname
+PERIMETER_ARTIFACTS_ROOT_PATH=perimeter/audits/${HOSTNAME}
+# Results in: perimeter/audits/web-server-01/2025-06-26/...
+
+# Or use a custom environment variable you define
+MACHINE_ID=prod-web-001
+PERIMETER_ARTIFACTS_ROOT_PATH=perimeter/audits/${MACHINE_ID}
+# Results in: perimeter/audits/prod-web-001/2025-06-26/...
+```
+
+#### Option 2: Custom Disk Per Environment
+
+```php
+// config/filesystems.php
+'audit_storage' => [
+    'driver' => 's3',
+    'key' => env('AWS_ACCESS_KEY_ID'),
+    'secret' => env('AWS_SECRET_ACCESS_KEY'),
+    'region' => env('AWS_DEFAULT_REGION'),
+    'bucket' => env('AWS_BUCKET'),
+    'root' => 'security-audits/' . env('SERVER_ID', gethostname()),
+],
+```
+
+#### Option 3: Dynamic Path Configuration
+
+```php
+// In a service provider
+Config::set('perimeter.artifacts.root_path', 
+    'perimeter/audits/' . env('CLUSTER_NODE_ID', gethostname())
+);
+```
+
+### Artifact Structure
+
+Artifacts are organized in a consistent directory structure:
+
+```
+perimeter/audits/
+├── 2025-06-26/
+│   └── 2025-06-26_14-30-15_abc123def/
+│       ├── audit_summary.json       # Overall audit results
+│       ├── audit_metadata.json      # Scan metadata and timing
+│       ├── audit_log.txt            # Complete audit command output
+│       ├── clamav_log.txt           # ClamAV scan results
+│       ├── trivy_version.txt        # Trivy version and scan output
+│       ├── ufw_status.txt           # UFW firewall status
+│       └── ...
+│   └── artifacts.zip               # Compressed archive
+└── 2025-06-25/
+    └── ...
+```
+
+### Artifact Retention
+
+Artifacts are automatically cleaned up based on the retention period:
+
+```bash
+# Manual cleanup of old artifacts
+php artisan perimeter:prune
+
+# Automatic cleanup (if enabled in scheduler)
+$schedule->command('perimeter:prune')->weekly();
+```
+
+### Accessing Artifacts
+
+Access artifacts through Laravel's storage system:
+
+```php
+use Illuminate\Support\Facades\Storage;
+
+// List available audit dates
+$auditDates = Storage::disk(config('perimeter.artifacts.disk'))
+    ->directories(config('perimeter.artifacts.root_path'));
+
+// Get artifacts for a specific date
+$todayArtifacts = Storage::disk(config('perimeter.artifacts.disk'))
+    ->files(config('perimeter.artifacts.root_path') . '/' . now()->format('Y-m-d'));
+
+// Download an artifact file
+$artifactContent = Storage::disk(config('perimeter.artifacts.disk'))
+    ->get('perimeter/audits/2025-06-26/2025-06-26_14-30-15_abc123def.zip');
+```
+
+### Compliance Integration
+
+Artifacts are designed to support various compliance frameworks:
+
+- **SOC 2**: Regular security monitoring evidence
+- **ISO 27001**: Information security management documentation
+- **PCI DSS**: Security scanning and monitoring logs
+- **HIPAA**: Security safeguard documentation
+- **Custom Audits**: Comprehensive security posture evidence
+
+The standardized format and automated collection ensure consistent, auditable security documentation.
 
 ## Advanced Integration Features
 
@@ -483,7 +664,7 @@ Security events are stored in dedicated database tables with optimized schemas:
   - Links to related security events
   - Provides audit trail of security operations
 
-The package automatically migrates these tables during installation. You can customize the table prefix in the configuration to match your database naming conventions.
+The package automatically migrates these tables during installation.
 
 ### Data Transfer Objects
 
@@ -551,7 +732,7 @@ Recent Activity
 
 Required Actions
 --------------
-• Update package "vulnerable/package" to version 2.0.1
+• Upgrade package "vulnerable/package" to version 2.0.1
 • Review suspicious access to /etc/passwd by www-data user
 • Configure fail2ban to protect Laravel login endpoints
 ```
@@ -560,7 +741,7 @@ Required Actions
 
 ### Using Docker for Development
 
-The package includes a Docker environment for local development and testing that closely mimics a production environment. This setup allows you to develop and test all security features without needing a full VM or physical machine.
+The package includes a Docker environment for local development and testing. This setup allows you to develop and test all security features without needing a full VM or physical machine.
 
 #### Docker Setup Instructions
 
@@ -612,8 +793,8 @@ docker-compose exec app php artisan perimeter:health
 # Run a security audit
 docker-compose exec app php artisan perimeter:audit
 
-# Test real-time monitoring (will run for 60 seconds)
-docker-compose exec app php artisan perimeter:monitor --realtime --duration=60
+# Test monitoring (will run for 60 seconds)
+docker-compose exec app php artisan perimeter:monitor --duration=60
 
 # Generate a security report
 docker-compose exec app php artisan perimeter:report
@@ -691,7 +872,9 @@ See [DEBUGGING.md](./DEBUGGING.md) for more detailed ClamAV troubleshooting step
 
 ### 5. Sample Outputs
 
-The package includes reference outputs for all security tools in the `resources/examples/` directory. These examples show what properly functioning services should produce and can help with troubleshooting.
+The package includes reference outputs for all security tools in the `resources/examples/` directory. These examples show what properly functioning services should produce and help with troubleshooting.
+
+The `resources/examples/perimeter/audit/` directory contains example audit artifacts showing the complete output structure of security audits, including service logs, scan results, and compliance documentation.
 
 ## Documentation
 

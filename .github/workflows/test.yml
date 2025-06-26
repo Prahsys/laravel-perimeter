@@ -33,9 +33,9 @@ jobs:
       run: |
         docker compose exec -T app php artisan perimeter:install --force
 
-    - name: Run package health check
+    - name: Run package audit
       run: |
-        docker compose exec -T app php artisan perimeter:health
+        docker compose exec -T app php artisan perimeter:audit
 
     - name: Run tests
       run: |
