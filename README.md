@@ -2,6 +2,10 @@
 
 Comprehensive system-level security monitoring for Laravel applications, integrating malware protection, runtime behavioral analysis, vulnerability detection, intrusion prevention, and firewall management.
 
+[![Latest Version](https://img.shields.io/packagist/v/prahsys/laravel-perimeter.svg?style=flat-square)](https://packagist.org/packages/prahsys/laravel-perimeter)
+[![License](https://img.shields.io/packagist/l/prahsys/laravel-perimeter.svg?style=flat-square)](LICENSE)
+[![PHP Version](https://img.shields.io/packagist/php-v/prahsys/laravel-perimeter.svg?style=flat-square)](https://packagist.org/packages/prahsys/laravel-perimeter)
+
 ## Overview
 
 Laravel Perimeter provides comprehensive security monitoring at the infrastructure boundary by seamlessly integrating multiple industry-standard security tools into a unified package with Laravel-native interfaces, standardized APIs, and consolidated logging. It creates a multi-layered security perimeter around your application to detect and respond to various security threats.
@@ -11,7 +15,7 @@ Laravel Perimeter provides comprehensive security monitoring at the infrastructu
 ### 1. File Protection (ClamAV Integration)
 - Malware scanning with OnAccess real-time protection
 - Scheduled and on-demand scanning with configurable paths
-- Signature-based detection with regular database updates
+- Signature-based detection with automatic database updates
 - Integration with Laravel's file upload system
 - Configurable exclusion patterns for performance optimization
 
@@ -201,7 +205,7 @@ Falco provides kernel-level behavioral analysis to detect suspicious activities:
 # Start behavioral monitoring
 php artisan perimeter:monitor --services=falco
 
-# Or run as a system service (recommended for production)
+# Or run as a system service
 sudo systemctl enable falco
 sudo systemctl start falco
 ```
@@ -228,11 +232,11 @@ ClamAV monitoring provides:
 - Detection of malware, trojans, and other threats
 - On-access protection for uploads and other file operations
 - Signature-based detection with daily database updates
-- Low false-positive rate suitable for production systems
+- Low false-positive rate suitable for web applications
 
 #### Centralized Monitoring Dashboard
 
-For continuous monitoring in production, use Supervisor:
+For continuous monitoring, use Supervisor:
 
 ```ini
 [program:perimeter-monitor]
@@ -360,7 +364,7 @@ Options:
 # Prune old security events and scan records
 php artisan perimeter:prune
 
-# Update security databases (ClamAV signatures, Trivy vulnerabilities)
+# Maintain security databases (ClamAV signatures, Trivy vulnerabilities)
 php artisan perimeter:update-databases
 ```
 
@@ -558,7 +562,7 @@ Recent Activity
 
 Required Actions
 --------------
-• Update package "vulnerable/package" to version 2.0.1
+• Upgrade package "vulnerable/package" to version 2.0.1
 • Review suspicious access to /etc/passwd by www-data user
 • Configure fail2ban to protect Laravel login endpoints
 ```
@@ -567,7 +571,7 @@ Required Actions
 
 ### Using Docker for Development
 
-The package includes a Docker environment for local development and testing that closely mimics a production environment. This setup allows you to develop and test all security features without needing a full VM or physical machine.
+The package includes a Docker environment for local development and testing. This setup allows you to develop and test all security features without needing a full VM or physical machine.
 
 #### Docker Setup Instructions
 
@@ -698,7 +702,9 @@ See [DEBUGGING.md](./DEBUGGING.md) for more detailed ClamAV troubleshooting step
 
 ### 5. Sample Outputs
 
-The package includes reference outputs for all security tools in the `resources/examples/` directory. These examples show what properly functioning services should produce and can help with troubleshooting.
+The package includes reference outputs for all security tools in the `resources/examples/` directory. These examples show what properly functioning services should produce and help with troubleshooting.
+
+The `resources/examples/perimeter/audit/` directory contains example audit artifacts showing the complete output structure of security audits, including service logs, scan results, and compliance documentation.
 
 ## Documentation
 

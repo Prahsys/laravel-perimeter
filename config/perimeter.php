@@ -39,6 +39,23 @@ return [
             'installer' => null, // No installer needed for SystemAuditService
         ],
 
+        \Prahsys\Perimeter\Services\UfwService::class => [
+            'enabled' => env('PERIMETER_UFW_ENABLED', true),
+            'installer' => \Prahsys\Perimeter\Commands\InstallUfw::class,
+            'log_path' => env('UFW_LOG_PATH', '/var/log/ufw.log'),
+            // Ports that can be completely open to the internet
+            'public_ports' => ! empty(env('PERIMETER_PUBLIC_PORTS')) ? explode('|', env('PERIMETER_PUBLIC_PORTS')) : ['80', '443'],
+            // Ports that should be restricted to specific IPs or localhost
+            'restricted_ports' => ! empty(env('PERIMETER_RESTRICTED_PORTS')) ? explode('|', env('PERIMETER_RESTRICTED_PORTS')) : ['22'],
+        ],
+
+        \Prahsys\Perimeter\Services\Fail2banService::class => [
+            'enabled' => env('PERIMETER_FAIL2BAN_ENABLED', true),
+            'installer' => \Prahsys\Perimeter\Commands\InstallFail2ban::class,
+            'log_path' => env('FAIL2BAN_LOG_PATH', '/var/log/fail2ban.log'),
+            'jail_config_path' => env('FAIL2BAN_JAIL_CONFIG', '/etc/fail2ban/jail.local'),
+        ],
+
         \Prahsys\Perimeter\Services\ClamAVService::class => [
             'enabled' => env('PERIMETER_CLAMAV_ENABLED', true),
             'installer' => \Prahsys\Perimeter\Commands\InstallClamAV::class,
@@ -99,43 +116,25 @@ return [
                 '/tmp',
             ],
         ],
-
-        \Prahsys\Perimeter\Services\UfwService::class => [
-            'enabled' => env('PERIMETER_UFW_ENABLED', true),
-            'installer' => \Prahsys\Perimeter\Commands\InstallUfw::class,
-            'log_path' => env('UFW_LOG_PATH', '/var/log/ufw.log'),
-            // Ports that can be completely open to the internet
-            'public_ports' => ! empty(env('PERIMETER_PUBLIC_PORTS')) ? explode('|', env('PERIMETER_PUBLIC_PORTS')) : ['80', '443'],
-            // Ports that should be restricted to specific IPs or localhost
-            'restricted_ports' => ! empty(env('PERIMETER_RESTRICTED_PORTS')) ? explode('|', env('PERIMETER_RESTRICTED_PORTS')) : ['22'],
-        ],
-
-        \Prahsys\Perimeter\Services\Fail2banService::class => [
-            'enabled' => env('PERIMETER_FAIL2BAN_ENABLED', true),
-            'installer' => \Prahsys\Perimeter\Commands\InstallFail2ban::class,
-            'log_path' => env('FAIL2BAN_LOG_PATH', '/var/log/fail2ban.log'),
-            'jail_config_path' => env('FAIL2BAN_JAIL_CONFIG', '/etc/fail2ban/jail.local'),
-            // Default jails to enable
-            'enabled_jails' => explode(',', env('FAIL2BAN_ENABLED_JAILS', 'sshd,apache-auth,php-fpm')),
-            // Default ban time in seconds
-            'ban_time' => env('FAIL2BAN_BAN_TIME', 3600),
-            // Number of retries before banning
-            'max_retry' => env('FAIL2BAN_MAX_RETRY', 5),
-            // Time window for retries in seconds
-            'find_time' => env('FAIL2BAN_FIND_TIME', 600),
-        ],
     ],
 
     // Reporting Configuration
     'reporting' => [
-        'retention_days' => env('PERIMETER_RETENTION_DAYS', 90),
+        'retention_days' => env('PERIMETER_RETENTION_DAYS', 365), // 1 year by default
         'formats' => ['json', 'csv'],
+    ],
+
+    // Audit Artifacts Configuration
+    'artifacts' => [
+        'disk' => env('PERIMETER_ARTIFACTS_DISK', 'local'), // Laravel storage disk to use
+        'root_path' => env('PERIMETER_ARTIFACTS_ROOT_PATH', 'perimeter/audits'), // Path within the disk
+        'retention_days' => env('PERIMETER_ARTIFACTS_RETENTION', 90), // Keep artifacts for 90 days
+        'compress_old' => env('PERIMETER_ARTIFACTS_COMPRESS', true), // Compress artifacts immediately upon completion
     ],
 
     // Database Storage Configuration
     'storage' => [
         'connection' => env('PERIMETER_DB_CONNECTION', null), // Uses default connection if null
-        'table_prefix' => env('PERIMETER_TABLE_PREFIX', 'perimeter_'),
         'models' => [
             // Model classes can be overridden by application
             'security_event' => env('PERIMETER_MODEL_SECURITY_EVENT', \Prahsys\Perimeter\Models\SecurityEvent::class),

@@ -1536,6 +1536,129 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
     }
 
     /**
+     * Run service-specific audit checks.
+     * Collect recent Falco events during the audit process.
+     */
+    protected function performServiceSpecificAuditChecks($output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): array
+    {
+        if (! $this->isEnabled() || ! $this->isInstalled() || ! $this->isConfigured()) {
+            return [];
+        }
+
+        // Save Falco log artifacts if artifact manager is provided
+        if ($artifactManager) {
+            $this->saveServiceArtifacts($artifactManager);
+        }
+
+        if ($output) {
+            $output->writeln('  <fg=yellow>🔍 Checking recent Falco security events...</>');
+        }
+
+        // Get recent security events
+        $recentEvents = $this->getMonitoringEvents(20);
+
+        // Filter for high-severity events for audit purposes
+        $auditableEvents = array_filter($recentEvents, function ($event) {
+            $severity = strtolower($event->severity);
+            return in_array($severity, ['critical', 'emergency', 'alert', 'high']);
+        });
+
+        if ($output) {
+            if (empty($auditableEvents)) {
+                $output->writeln('  <fg=green>✅ No high-severity security events detected</>');
+            } else {
+                $output->writeln('  <fg=red>⚠️  '.count($auditableEvents).' high-severity security events detected</>');
+            }
+        }
+
+        return $auditableEvents;
+    }
+
+    /**
+     * Save service artifacts for audit trail
+     */
+    protected function saveServiceArtifacts(\Prahsys\Perimeter\Services\ArtifactManager $artifactManager): void
+    {
+        try {
+            $logPath = '/var/log/falco/falco.log';
+            if (file_exists($logPath) && is_readable($logPath)) {
+                $logContent = file_get_contents($logPath);
+                $artifactManager->saveArtifact('falco', 'log', $logContent);
+            }
+        } catch (\Exception $e) {
+            // Skip if can't read log
+        }
+    }
+
+    /**
+     * Save Falco status and configuration artifacts
+     */
+    protected function saveFalcoStatusArtifacts(\Prahsys\Perimeter\Services\ArtifactManager $artifactManager): void
+    {
+        try {
+            // Capture Falco service status
+            $statusProcess = new \Symfony\Component\Process\Process(['systemctl', 'status', 'falco.service']);
+            $statusProcess->setTimeout(10);
+            $statusProcess->run();
+            
+            if ($statusProcess->isSuccessful() || $statusProcess->getOutput()) {
+                $statusOutput = $statusProcess->getOutput();
+                $artifactManager->saveArtifact('falco', 'service_status', $statusOutput, [
+                    'command' => 'systemctl status falco.service',
+                    'timestamp' => now()->toIso8601String()
+                ]);
+            }
+
+            // Also check for modern-bpf service
+            $modernBpfProcess = new \Symfony\Component\Process\Process(['systemctl', 'status', 'falco-modern-bpf.service']);
+            $modernBpfProcess->setTimeout(10);
+            $modernBpfProcess->run();
+            
+            if ($modernBpfProcess->isSuccessful() || $modernBpfProcess->getOutput()) {
+                $modernBpfOutput = $modernBpfProcess->getOutput();
+                $artifactManager->saveArtifact('falco', 'modern_bpf_service_status', $modernBpfOutput, [
+                    'command' => 'systemctl status falco-modern-bpf.service',
+                    'timestamp' => now()->toIso8601String()
+                ]);
+            }
+
+            // Capture Falco version info
+            $versionProcess = new \Symfony\Component\Process\Process(['falco', '--version']);
+            $versionProcess->setTimeout(10);
+            $versionProcess->run();
+            
+            if ($versionProcess->isSuccessful()) {
+                $versionOutput = $versionProcess->getOutput();
+                $artifactManager->saveArtifact('falco', 'version_info', $versionOutput, [
+                    'command' => 'falco --version',
+                    'timestamp' => now()->toIso8601String()
+                ]);
+            }
+
+            // Capture Falco configuration if accessible
+            $configPaths = [
+                '/etc/falco/falco.yaml',
+                '/etc/falco/falco_rules.local.yaml'
+            ];
+
+            foreach ($configPaths as $configPath) {
+                if (file_exists($configPath) && is_readable($configPath)) {
+                    $configContent = file_get_contents($configPath);
+                    $configName = basename($configPath, '.yaml');
+                    
+                    $artifactManager->saveArtifact('falco', $configName . '_config', $configContent, [
+                        'source_file' => $configPath,
+                        'timestamp' => now()->toIso8601String()
+                    ]);
+                }
+            }
+
+        } catch (\Exception $e) {
+            Log::debug('Failed to capture some Falco status artifacts: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Convert a behavioral analysis result to a SecurityEventData instance.
      *
      * @param  array  $data  Behavioral analysis result data

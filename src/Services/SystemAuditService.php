@@ -117,7 +117,7 @@ class SystemAuditService extends AbstractSecurityService implements SystemAuditI
      * @param  \Illuminate\Console\OutputStyle|null  $output  Optional output interface to print to
      * @return array Array of SecurityEventData objects, empty array if no issues
      */
-    protected function performServiceSpecificAuditChecks($output = null): array
+    protected function performServiceSpecificAuditChecks($output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): array
     {
         // Reset state
         $this->issues = [];
@@ -169,12 +169,13 @@ class SystemAuditService extends AbstractSecurityService implements SystemAuditI
      * Run audit checks specific to this service and output results.
      *
      * @param  \Illuminate\Console\OutputStyle|null  $output  Optional output interface to print to
+     * @param  \Prahsys\Perimeter\Services\ArtifactManager|null  $artifactManager  Optional artifact manager for saving audit data
      * @return \Prahsys\Perimeter\Data\ServiceAuditData Audit results with any issues found
      */
-    public function runServiceAudit(?OutputStyle $output = null): ServiceAuditData
+    public function runServiceAudit(?OutputStyle $output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): ServiceAuditData
     {
         // Let the parent template method handle the flow
-        return parent::runServiceAudit($output);
+        return parent::runServiceAudit($output, $artifactManager);
     }
 
     /**

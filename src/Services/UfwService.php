@@ -615,13 +615,19 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
      * Run service-specific audit checks.
      *
      * @param  \Illuminate\Console\OutputStyle|null  $output  Optional output interface to print to
+     * @param  \Prahsys\Perimeter\Services\ArtifactManager|null  $artifactManager  Optional artifact manager for saving audit data
      * @return array Array of SecurityEventData objects
      */
-    protected function performServiceSpecificAuditChecks($output = null): array
+    protected function performServiceSpecificAuditChecks($output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): array
     {
         // Build the issues array using SecurityEventData
         $issues = [];
         $firewallActive = $this->isInstalled() && $this->isConfigured();
+        
+        // Save UFW status and configuration as artifacts if manager is available
+        if ($artifactManager && $firewallActive) {
+            $this->saveUfwArtifacts($artifactManager);
+        }
 
         if (! $firewallActive) {
             $issues[] = new SecurityEventData(
@@ -857,7 +863,7 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
             if (isset($commonPorts[$port])) {
                 $descriptions[] = $port . ' (' . $commonPorts[$port] . ')';
             } else {
-                $descriptions[] = $port . ' (Unknown)';
+                $descriptions[] = $port;
             }
         }
 
@@ -933,5 +939,21 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
         }
 
         return null;
+    }
+
+    /**
+     * Save UFW artifacts for audit trail
+     */
+    protected function saveUfwArtifacts(\Prahsys\Perimeter\Services\ArtifactManager $artifactManager): void
+    {
+        try {
+            // Save UFW status output
+            $statusResult = $this->getUfwStatusSafely();
+            if ($statusResult['success']) {
+                $artifactManager->saveArtifact('ufw', 'status', $statusResult['output']);
+            }
+        } catch (\Exception $e) {
+            // Skip if can't get UFW status
+        }
     }
 }
