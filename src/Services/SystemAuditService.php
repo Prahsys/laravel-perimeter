@@ -112,16 +112,21 @@ class SystemAuditService extends AbstractSecurityService implements SystemAuditI
     }
 
     /**
-     * Run service-specific audit checks.
+     * Run service-specific audit tasks.
      *
      * @param  \Illuminate\Console\OutputStyle|null  $output  Optional output interface to print to
      * @return array Array of SecurityEventData objects, empty array if no issues
      */
-    protected function performServiceSpecificAuditChecks($output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): array
+    protected function runServiceAuditTasks($output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): array
     {
         // Reset state
         $this->issues = [];
         $this->highestSeverity = 'info';
+
+        // Save system artifacts if artifact manager is provided
+        if ($artifactManager) {
+            $this->saveServiceArtifacts($artifactManager);
+        }
 
         // Create a temporary scan record
         $scanClass = config('perimeter.storage.models.security_scan', \Prahsys\Perimeter\Models\SecurityScan::class);
@@ -576,6 +581,108 @@ class SystemAuditService extends AbstractSecurityService implements SystemAuditI
                 'highest_severity' => $this->highestSeverity,
             ]
         );
+    }
+
+
+    /**
+     * Save system artifacts for audit trail
+     */
+    protected function saveServiceArtifacts(\Prahsys\Perimeter\Services\ArtifactManager $artifactManager): void
+    {
+        try {
+            // Save apt security updates status
+            $updateProcess = new Process(['apt', 'list', '--upgradable']);
+            $updateProcess->setTimeout(30);
+            $updateProcess->run();
+            
+            if ($updateProcess->isSuccessful()) {
+                $updateOutput = $updateProcess->getOutput();
+                $artifactManager->saveArtifact('system_updates.txt', $updateOutput, [
+                    'service' => 'system',
+                    'type' => 'updates',
+                    'command' => 'apt list --upgradable'
+                ]);
+            }
+
+            // Save network connections
+            $netstatProcess = new Process(['ss', '-tulpn']);
+            $netstatProcess->setTimeout(15);
+            $netstatProcess->run();
+            
+            if ($netstatProcess->isSuccessful()) {
+                $netstatOutput = $netstatProcess->getOutput();
+                $artifactManager->saveArtifact('system_network_connections.txt', $netstatOutput, [
+                    'service' => 'system',
+                    'type' => 'network',
+                    'command' => 'ss -tulpn'
+                ]);
+            }
+
+            // Save running processes
+            $processProcess = new Process(['ps', 'aux']);
+            $processProcess->setTimeout(15);
+            $processProcess->run();
+            
+            if ($processProcess->isSuccessful()) {
+                $processOutput = $processProcess->getOutput();
+                $artifactManager->saveArtifact('system_processes.txt', $processOutput, [
+                    'service' => 'system',
+                    'type' => 'processes',
+                    'command' => 'ps aux'
+                ]);
+            }
+
+            // Save disk usage
+            $diskProcess = new Process(['df', '-h']);
+            $diskProcess->setTimeout(10);
+            $diskProcess->run();
+            
+            if ($diskProcess->isSuccessful()) {
+                $diskOutput = $diskProcess->getOutput();
+                $artifactManager->saveArtifact('system_disk_usage.txt', $diskOutput, [
+                    'service' => 'system',
+                    'type' => 'disk',
+                    'command' => 'df -h'
+                ]);
+            }
+
+            // Save system information
+            $systemInfo = [
+                'hostname' => gethostname(),
+                'uname' => php_uname(),
+                'php_version' => PHP_VERSION,
+                'laravel_version' => app()->version(),
+                'timestamp' => now()->toISOString(),
+            ];
+
+            // Get additional system info
+            $unameProcess = new Process(['uname', '-a']);
+            $unameProcess->setTimeout(5);
+            $unameProcess->run();
+            if ($unameProcess->isSuccessful()) {
+                $systemInfo['uname_full'] = trim($unameProcess->getOutput());
+            }
+
+            $artifactManager->saveArtifact('system_info.json', json_encode($systemInfo, JSON_PRETTY_PRINT), [
+                'service' => 'system',
+                'type' => 'info',
+                'format' => 'json'
+            ]);
+
+            // Save SSH configuration (if readable)
+            $sshConfigPath = '/etc/ssh/sshd_config';
+            if (file_exists($sshConfigPath) && is_readable($sshConfigPath)) {
+                $sshConfig = file_get_contents($sshConfigPath);
+                $artifactManager->saveArtifact('system_ssh_config.txt', $sshConfig, [
+                    'service' => 'system',
+                    'type' => 'config',
+                    'source_file' => $sshConfigPath
+                ]);
+            }
+
+        } catch (\Exception $e) {
+            // Skip if can't collect system artifacts
+        }
     }
 
     /**

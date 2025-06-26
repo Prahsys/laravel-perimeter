@@ -1539,7 +1539,7 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
      * Run service-specific audit checks.
      * Collect recent Falco events during the audit process.
      */
-    protected function performServiceSpecificAuditChecks($output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): array
+    protected function runServiceAuditTasks($output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): array
     {
         if (! $this->isEnabled() || ! $this->isInstalled() || ! $this->isConfigured()) {
             return [];
@@ -1580,13 +1580,55 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
     protected function saveServiceArtifacts(\Prahsys\Perimeter\Services\ArtifactManager $artifactManager): void
     {
         try {
-            $logPath = '/var/log/falco/falco.log';
-            if (file_exists($logPath) && is_readable($logPath)) {
-                $logContent = file_get_contents($logPath);
-                $artifactManager->saveArtifact('falco', 'log', $logContent);
+            // Save Falco log files
+            $logPaths = ['/var/log/falco/falco.log', '/var/log/falco.log'];
+            foreach ($logPaths as $logPath) {
+                if (file_exists($logPath) && is_readable($logPath)) {
+                    $logContent = file_get_contents($logPath);
+                    $artifactManager->saveArtifact('falco_log.txt', $logContent, [
+                        'service' => 'falco',
+                        'type' => 'log',
+                        'log_path' => $logPath
+                    ]);
+                    break; // Only save the first found log
+                }
+            }
+
+            // Save recent security events as JSON
+            $recentEvents = $this->getMonitoringEvents(50);
+            if (!empty($recentEvents)) {
+                $eventsJson = array_map(function($event) {
+                    return [
+                        'timestamp' => $event->timestamp,
+                        'severity' => $event->severity,
+                        'type' => $event->type,
+                        'description' => $event->description,
+                        'details' => $event->details
+                    ];
+                }, $recentEvents);
+
+                $artifactManager->saveArtifact('falco_recent_events.json', json_encode($eventsJson, JSON_PRETTY_PRINT), [
+                    'service' => 'falco',
+                    'type' => 'events',
+                    'event_count' => count($eventsJson)
+                ]);
+            }
+
+            // Save loaded rules information
+            $rulesProcess = new \Symfony\Component\Process\Process(['falco', '--list']);
+            $rulesProcess->setTimeout(15);
+            $rulesProcess->run();
+            
+            if ($rulesProcess->isSuccessful()) {
+                $rulesOutput = $rulesProcess->getOutput();
+                $artifactManager->saveArtifact('falco_rules.txt', $rulesOutput, [
+                    'service' => 'falco',
+                    'type' => 'rules',
+                    'command' => 'falco --list'
+                ]);
             }
         } catch (\Exception $e) {
-            // Skip if can't read log
+            // Skip if can't read artifacts
         }
     }
 
@@ -1603,9 +1645,10 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
             
             if ($statusProcess->isSuccessful() || $statusProcess->getOutput()) {
                 $statusOutput = $statusProcess->getOutput();
-                $artifactManager->saveArtifact('falco', 'service_status', $statusOutput, [
-                    'command' => 'systemctl status falco.service',
-                    'timestamp' => now()->toIso8601String()
+                $artifactManager->saveArtifact('falco_service_status.txt', $statusOutput, [
+                    'service' => 'falco',
+                    'type' => 'service_status',
+                    'command' => 'systemctl status falco.service'
                 ]);
             }
 
@@ -1616,9 +1659,10 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
             
             if ($modernBpfProcess->isSuccessful() || $modernBpfProcess->getOutput()) {
                 $modernBpfOutput = $modernBpfProcess->getOutput();
-                $artifactManager->saveArtifact('falco', 'modern_bpf_service_status', $modernBpfOutput, [
-                    'command' => 'systemctl status falco-modern-bpf.service',
-                    'timestamp' => now()->toIso8601String()
+                $artifactManager->saveArtifact('falco_modern_bpf_status.txt', $modernBpfOutput, [
+                    'service' => 'falco',
+                    'type' => 'modern_bpf_service_status',
+                    'command' => 'systemctl status falco-modern-bpf.service'
                 ]);
             }
 
@@ -1629,9 +1673,10 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
             
             if ($versionProcess->isSuccessful()) {
                 $versionOutput = $versionProcess->getOutput();
-                $artifactManager->saveArtifact('falco', 'version_info', $versionOutput, [
-                    'command' => 'falco --version',
-                    'timestamp' => now()->toIso8601String()
+                $artifactManager->saveArtifact('falco_version.txt', $versionOutput, [
+                    'service' => 'falco',
+                    'type' => 'version_info',
+                    'command' => 'falco --version'
                 ]);
             }
 
@@ -1646,9 +1691,10 @@ class FalcoService extends AbstractSecurityService implements MonitorServiceInte
                     $configContent = file_get_contents($configPath);
                     $configName = basename($configPath, '.yaml');
                     
-                    $artifactManager->saveArtifact('falco', $configName . '_config', $configContent, [
-                        'source_file' => $configPath,
-                        'timestamp' => now()->toIso8601String()
+                    $artifactManager->saveArtifact($configName . '_config.txt', $configContent, [
+                        'service' => 'falco',
+                        'type' => 'config',
+                        'source_file' => $configPath
                     ]);
                 }
             }

@@ -822,7 +822,7 @@ class Fail2banService extends AbstractSecurityService implements IntrusionPreven
      * @param  \Illuminate\Console\OutputStyle|null  $output  Optional output interface to print to
      * @return array Array of SecurityEventData objects
      */
-    protected function performServiceSpecificAuditChecks($output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): array
+    protected function runServiceAuditTasks($output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): array
     {
         $issues = [];
 

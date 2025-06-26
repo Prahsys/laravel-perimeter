@@ -618,7 +618,7 @@ class UfwService extends AbstractSecurityService implements FirewallServiceInter
      * @param  \Prahsys\Perimeter\Services\ArtifactManager|null  $artifactManager  Optional artifact manager for saving audit data
      * @return array Array of SecurityEventData objects
      */
-    protected function performServiceSpecificAuditChecks($output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): array
+    protected function runServiceAuditTasks($output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): array
     {
         // Build the issues array using SecurityEventData
         $issues = [];

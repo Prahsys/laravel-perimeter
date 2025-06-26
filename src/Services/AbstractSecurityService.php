@@ -49,14 +49,14 @@ abstract class AbstractSecurityService implements SecurityServiceInterface
     }
 
     /**
-     * Run service-specific audit checks.
-     * Override this method in child classes to perform service-specific checks.
+     * Run service-specific audit tasks.
+     * Override this method in child classes to perform service-specific tasks.
      *
      * @param  \Illuminate\Console\OutputStyle|null  $output  Optional output interface to print to
      * @param  \Prahsys\Perimeter\Services\ArtifactManager|null  $artifactManager  Optional artifact manager for saving audit data
      * @return array Array of SecurityEventData objects, empty array if no issues
      */
-    protected function performServiceSpecificAuditChecks($output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): array
+    protected function runServiceAuditTasks($output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): array
     {
         // Default implementation returns no issues
         return [];
@@ -86,7 +86,7 @@ abstract class AbstractSecurityService implements SecurityServiceInterface
     /**
      * Run audit checks specific to this service and output results.
      * This is a template method that standardizes the audit process.
-     * Child classes should override performServiceSpecificAuditChecks() instead.
+     * Child classes should override runServiceAuditTasks() instead.
      *
      * @param  \Illuminate\Console\OutputStyle|null  $output  Optional output interface to print to
      * @param  \Prahsys\Perimeter\Services\ArtifactManager|null  $artifactManager  Optional artifact manager for saving audit data
@@ -145,8 +145,8 @@ abstract class AbstractSecurityService implements SecurityServiceInterface
             }
         }
 
-        // Run service-specific checks
-        $issues = $this->performServiceSpecificAuditChecks($output, $artifactManager);
+        // Run service-specific tasks
+        $issues = $this->runServiceAuditTasks($output, $artifactManager);
         $result->issues = $issues;
 
         // Set status based on issues

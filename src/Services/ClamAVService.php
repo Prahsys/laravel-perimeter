@@ -413,7 +413,7 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
      * Run service-specific audit checks.
      * Perform ClamAV scanning during the audit process.
      */
-    protected function performServiceSpecificAuditChecks($output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): array
+    protected function runServiceAuditTasks($output = null, ?\Prahsys\Perimeter\Services\ArtifactManager $artifactManager = null): array
     {
         if (! $this->isEnabled() || ! $this->isInstalled() || ! $this->isConfigured()) {
             return [];
