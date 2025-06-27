@@ -3,6 +3,7 @@
 namespace Prahsys\Perimeter\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 use Prahsys\Perimeter\Contracts\SecurityMonitoringServiceInterface;
 
 class PerimeterMonitor extends Command
@@ -128,6 +129,13 @@ class PerimeterMonitor extends Command
 
         // Main monitoring loop - run indefinitely or until end time
         while ($endTime === null || now()->lessThan($endTime)) {
+            // Check for termination signal
+            if ($this->shouldTerminate()) {
+                $this->newLine();
+                $this->info('Termination signal received. Shutting down gracefully...');
+                break;
+            }
+
             // Check if we've been running for at least $checkInterval seconds
             if (time() - $lastCheck >= $checkInterval) {
                 $hasNewEvents = false;
@@ -194,5 +202,13 @@ class PerimeterMonitor extends Command
             'info', 'low' => 'green',
             default => 'white',
         };
+    }
+
+    /**
+     * Check if monitoring should terminate
+     */
+    protected function shouldTerminate(): bool
+    {
+        return Cache::has('perimeter:terminate');
     }
 }
