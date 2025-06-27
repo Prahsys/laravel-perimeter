@@ -15,6 +15,7 @@ use Prahsys\Perimeter\Commands\PerimeterMonitor;
 use Prahsys\Perimeter\Commands\PerimeterPrune;
 use Prahsys\Perimeter\Commands\PerimeterReport;
 use Prahsys\Perimeter\Commands\PerimeterSeedTestData;
+use Prahsys\Perimeter\Commands\PerimeterTerminate;
 use Prahsys\Perimeter\Contracts\FirewallServiceInterface;
 use Prahsys\Perimeter\Contracts\IntrusionPreventionInterface;
 use Prahsys\Perimeter\Contracts\MonitorServiceInterface;
@@ -151,6 +152,7 @@ class PerimeterServiceProvider extends ServiceProvider
             $this->commands([
                 PerimeterAudit::class,
                 PerimeterMonitor::class,
+                PerimeterTerminate::class,
                 PerimeterReport::class,
                 PerimeterHealth::class,
                 PerimeterInstall::class,
