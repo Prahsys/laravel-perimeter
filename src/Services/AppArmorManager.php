@@ -284,6 +284,7 @@ class AppArmorManager
                 '/var/run/clamav' => 0755,
                 '/var/log/clamav' => 0755,
                 '/var/lib/clamav' => 0755,
+                storage_path('logs/perimeter') => 0755,
             ];
 
             foreach ($directories as $dir => $permissions) {

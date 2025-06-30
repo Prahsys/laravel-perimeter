@@ -130,8 +130,8 @@ class InstallClamAV extends Command
 
         // Try to write to a system location to test permissions
         try {
-            // If we can write to /tmp/sudo_test, we likely have root
-            $testFile = '/tmp/sudo_test_'.time();
+            // Use storage directory for testing permissions - more reliable
+            $testFile = storage_path('logs/sudo_test_'.time());
             $result = @file_put_contents($testFile, 'test');
 
             if ($result !== false) {

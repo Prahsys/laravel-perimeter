@@ -111,7 +111,10 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                 $this->scanSinglePath($path, $excludePatterns, $results);
             } else {
                 Log::info("ClamAV: Scanning directory: $path");
-                Log::info('ClamAV: Watch scan progress with: tail -f /tmp/clamav-scan.log');
+                
+                // Use Laravel storage for scan logs
+                $scanLogPath = $this->getServiceLogPath('scan.log');
+                Log::info("ClamAV: Watch scan progress with: tail -f {$scanLogPath}");
 
                 // For directories, use the recursive scan option of ClamAV
                 if ($this->shouldUseDaemonMode()) {
@@ -129,7 +132,6 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                 }
 
                 // Redirect output directly to log file
-                $scanLogPath = '/tmp/clamav-scan.log';
                 $timestamp = date('Y-m-d H:i:s');
                 $logHeader = "\n[{$timestamp}] Starting ClamAV scan of: {$path}\n";
                 file_put_contents($scanLogPath, $logHeader, FILE_APPEND | LOCK_EX);
@@ -144,6 +146,10 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
                 $exitCode = $process->getExitCode();
 
                 // Log completion status
+                $timestamp = date('Y-m-d H:i:s');
+                $completionMessage = "\n[{$timestamp}] Scan completed with exit code: {$exitCode}\n";
+                file_put_contents($scanLogPath, $completionMessage, FILE_APPEND | LOCK_EX);
+                
                 if ($exitCode === 0) {
                     Log::info("ClamAV: Scan completed - no threats found in $path");
                 } elseif ($exitCode === 1) {

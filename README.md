@@ -910,6 +910,7 @@ sudo journalctl | grep -i apparmor | grep clamonacc
 sudo dmesg | grep -i apparmor | grep clamonacc
 ```
 
+
 The installer automatically configures AppArmor profiles, but manual configuration may be needed:
 
 ```bash
