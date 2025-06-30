@@ -897,6 +897,44 @@ sudo systemctl restart clamav-daemon
 ls -la /var/run/clamav/clamd.sock
 ```
 
+#### AppArmor Configuration Issues
+
+If ClamAV real-time scanning (`clamonacc`) fails to start, it may be blocked by AppArmor security policies:
+
+```bash
+# Check if AppArmor is blocking clamonacc
+sudo aa-status | grep clamonacc
+sudo journalctl | grep -i apparmor | grep clamonacc
+
+# Check AppArmor denials in system logs
+sudo dmesg | grep -i apparmor | grep clamonacc
+```
+
+The installer automatically configures AppArmor profiles, but manual configuration may be needed:
+
+```bash
+# Install AppArmor profile for clamonacc
+sudo cp docker/apparmor/usr.sbin.clamonacc /etc/apparmor.d/
+sudo apparmor_parser -r /etc/apparmor.d/usr.sbin.clamonacc
+
+# Alternative: Put clamonacc in complain mode for debugging
+sudo aa-complain /usr/sbin/clamonacc
+
+# Verify profile is loaded
+sudo aa-status | grep clamonacc
+```
+
+If AppArmor is not installed but needed:
+
+```bash
+# Install AppArmor utilities
+sudo apt-get install apparmor-utils
+
+# Enable AppArmor (requires reboot)
+sudo systemctl enable apparmor
+sudo reboot
+```
+
 See [DEBUGGING.md](./DEBUGGING.md) for more detailed ClamAV troubleshooting steps.
 
 ### 5. Sample Outputs

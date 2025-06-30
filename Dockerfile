@@ -35,6 +35,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fail2ban \
     python3-minimal \
     software-properties-common \
+    apparmor-utils \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install PHP 8.2 and extensions
@@ -78,6 +79,10 @@ RUN chmod -R 777 /var/www/laravel-app/bootstrap/cache
 # Copy systemd service definitions
 COPY docker/setup /sbin/
 RUN chmod +x /sbin/setup
+
+# Copy AppArmor profiles
+COPY docker/apparmor/ /etc/apparmor.d/
+RUN chmod 644 /etc/apparmor.d/*
 
 # Copy entrypoint script
 COPY docker-entrypoint.sh /usr/local/bin/

@@ -109,6 +109,9 @@ class PerimeterServiceProvider extends ServiceProvider
             return $app->make(Fail2banService::class);
         });
 
+        // AppArmor Manager
+        $this->app->singleton(Services\AppArmorManager::class);
+
         // Reporting Service (not managed by ServiceManager)
         $this->app->singleton(ReportingService::class, function ($app) {
             return new ReportingService(config('perimeter.reporting'));

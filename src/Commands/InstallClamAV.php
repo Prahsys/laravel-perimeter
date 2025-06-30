@@ -5,6 +5,7 @@ namespace Prahsys\Perimeter\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use Prahsys\Perimeter\Services\ClamAVService;
+use Prahsys\Perimeter\Services\AppArmorManager;
 
 class InstallClamAV extends Command
 {
@@ -40,6 +41,12 @@ class InstallClamAV extends Command
         $this->info('- ClamAV installed: '.($isInstalled ? 'Yes' : 'No'));
         $this->info('- ClamAV configured: '.($isConfigured ? 'Yes' : 'No'));
 
+        // Check AppArmor status
+        $appArmorManager = AppArmorManager::instance();
+        $appArmorStatus = $appArmorManager->getStatus();
+        $this->info('- AppArmor installed: '.($appArmorStatus['installed'] ? 'Yes' : 'No'));
+        $this->info('- AppArmor enabled: '.($appArmorStatus['enabled'] ? 'Yes' : 'No'));
+
         // If already installed and not forced, exit early
         if ($isInstalled && ! $this->option('force')) {
             $this->info('ClamAV is already installed. Use --force to reinstall.');
@@ -67,6 +74,9 @@ class InstallClamAV extends Command
 
         if ($result) {
             $this->info('ClamAV has been successfully installed!');
+
+            // Handle AppArmor configuration
+            $this->handleAppArmorConfiguration();
 
             // Display status
             $status = $clamavService->getStatus();
@@ -110,5 +120,59 @@ class InstallClamAV extends Command
         }
 
         return false;
+    }
+
+    /**
+     * Handle AppArmor configuration for ClamAV.
+     */
+    protected function handleAppArmorConfiguration(): void
+    {
+        $this->newLine();
+        $this->info('Configuring AppArmor for ClamAV...');
+
+        $appArmorManager = AppArmorManager::instance();
+        $appArmorStatus = $appArmorManager->getStatus();
+        
+        if (!$appArmorStatus['installed']) {
+            $this->warn('AppArmor is not installed. ClamAV real-time scanning may work without it.');
+            return;
+        }
+
+        if (!$appArmorStatus['enabled']) {
+            $this->warn('AppArmor is installed but not enabled. Some ClamAV features may be restricted.');
+            $this->warn('To enable AppArmor: sudo systemctl enable apparmor && sudo reboot');
+            return;
+        }
+
+        // Install clamonacc profile
+        $profiles = ['usr.sbin.clamonacc'];
+        $success = $appArmorManager->configureForService('ClamAV', $profiles);
+        
+        if ($success) {
+            $this->info('✓ AppArmor profiles configured successfully');
+        } else {
+            $this->warn('⚠ Failed to configure some AppArmor profiles');
+            $this->warn('ClamAV may still work, but real-time scanning might be restricted');
+            $this->displayAppArmorInstructions();
+        }
+    }
+
+    /**
+     * Display manual AppArmor configuration instructions.
+     */
+    protected function displayAppArmorInstructions(): void
+    {
+        $this->newLine();
+        $this->warn('Manual AppArmor configuration may be required:');
+        
+        $appArmorManager = AppArmorManager::instance();
+        $instructions = $appArmorManager->getInstallationInstructions('usr.sbin.clamonacc');
+        foreach ($instructions as $instruction) {
+            $this->line("  {$instruction}");
+        }
+
+        $this->newLine();
+        $this->warn('Alternative: Put clamonacc in complain mode for debugging:');
+        $this->line('  sudo aa-complain /usr/sbin/clamonacc');
     }
 }

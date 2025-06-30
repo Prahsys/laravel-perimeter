@@ -1,0 +1,71 @@
+# AppArmor profile for ClamAV clamonacc real-time scanner
+# This profile allows clamonacc to monitor the filesystem for real-time malware scanning
+#
+# Installation:
+# sudo cp usr.sbin.clamonacc /etc/apparmor.d/
+# sudo apparmor_parser -r /etc/apparmor.d/usr.sbin.clamonacc
+#
+# For Docker environments, this file should be copied during container build
+
+#include <tunables/global>
+
+/usr/sbin/clamonacc {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+  #include <abstractions/unix>
+  #include <abstractions/consoles>
+
+  # Capabilities needed for filesystem monitoring and scanning
+  capability dac_override,
+  capability setgid,
+  capability setuid,
+  capability sys_admin,
+  capability sys_resource,
+  capability ipc_lock,
+
+  # Binary execution
+  /usr/sbin/clamonacc mr,
+
+  # ClamAV daemon socket communication
+  /var/run/clamav/clamd.ctl rw,
+  /run/clamav/clamd.ctl rw,
+
+  # System files for inotify and process management
+  /proc/sys/fs/inotify/* r,
+  /proc/*/stat r,
+  /proc/*/status r,
+  /proc/*/cmdline r,
+  /proc/*/fd/ r,
+  /proc/*/fd/* r,
+  
+  # System directories (read access for monitoring)
+  /** r,
+  
+  # Temporary files and logging
+  /tmp/** rw,
+  /var/tmp/** rw,
+  /var/log/clamav/* w,
+  /var/log/clamav/ w,
+  
+  # Configuration files
+  /etc/clamav/* r,
+  
+  # Shared libraries and system files
+  /lib{,32,64}/** mr,
+  /usr/lib{,32,64}/** mr,
+  
+  # Device files needed for filesystem monitoring
+  /dev/null rw,
+  /dev/zero r,
+  /dev/urandom r,
+  
+  # Network access for updates and communication
+  network inet stream,
+  network inet dgram,
+  network unix stream,
+  network unix dgram,
+  
+  # Signal handling
+  signal receive,
+  signal send,
+}
