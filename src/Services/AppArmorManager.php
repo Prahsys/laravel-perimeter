@@ -322,8 +322,17 @@ class AppArmorManager
                 '/var/run/clamav' => 0755,
                 '/var/log/clamav' => 0755,
                 '/var/lib/clamav' => 0755,
-                storage_path('logs/perimeter') => 0755,
             ];
+            
+            // Handle Laravel storage path (resolve symlinks for Envoyer)
+            $storagePath = storage_path('logs/perimeter');
+            if (is_link(storage_path())) {
+                $realStoragePath = realpath(storage_path());
+                if ($realStoragePath !== false) {
+                    $storagePath = "{$realStoragePath}/logs/perimeter";
+                }
+            }
+            $directories[$storagePath] = 0755;
 
             foreach ($directories as $dir => $permissions) {
                 if (!is_dir($dir)) {

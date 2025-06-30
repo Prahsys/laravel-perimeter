@@ -270,7 +270,17 @@ abstract class AbstractSecurityService implements SecurityServiceInterface
     protected function getServiceLogPath(string $filename): string
     {
         $serviceName = $this->getServiceName();
-        $logDir = storage_path("logs/perimeter/{$serviceName}");
+        
+        // Use realpath to resolve symlinks for Envoyer deployments
+        $storagePath = storage_path();
+        if (is_link($storagePath)) {
+            $realStoragePath = realpath($storagePath);
+            if ($realStoragePath !== false) {
+                $storagePath = $realStoragePath;
+            }
+        }
+        
+        $logDir = "{$storagePath}/logs/perimeter/{$serviceName}";
         
         // Ensure the directory exists
         $this->ensureDirectoryExists($logDir, 0755, true);
