@@ -340,6 +340,35 @@ Options:
 - `--duration=3600` - Duration in seconds (default: indefinite)
 - `--services=clamav,falco` - Focus on specific security services (comma-separated)
 
+#### Daemon Management
+
+For production deployments, monitoring should be run as a daemon using supervisor. The terminate command allows for graceful shutdown during deployments:
+
+```bash
+# Terminate running monitoring processes (for deployment scripts)
+php artisan perimeter:terminate
+
+# Terminate with custom wait time for graceful shutdown
+php artisan perimeter:terminate --wait=10
+```
+
+This is particularly useful with supervisor configuration for automatic restart after deployments:
+
+```ini
+[program:perimeter-monitor]
+command=php /path/to/your/artisan perimeter:monitor
+autostart=true
+autorestart=true
+user=www-data
+redirect_stderr=true
+stdout_logfile=/var/log/perimeter-monitor.log
+```
+
+Deployment workflow:
+1. `php artisan perimeter:terminate` - Gracefully stop monitoring
+2. Deploy application updates
+3. Supervisor automatically restarts monitoring
+
 ### Reporting
 
 Generate detailed security reports with flexible filtering:
