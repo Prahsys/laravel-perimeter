@@ -112,16 +112,34 @@ class AppArmorManager
                 $sourcePath = $this->getPackageProfilePath($profileName);
             }
 
+            Log::info("Looking for AppArmor profile source at: {$sourcePath}");
+            
             if (!file_exists($sourcePath)) {
                 Log::error("AppArmor profile source not found: {$sourcePath}");
+                
+                // List available files in the directory for debugging
+                $dir = dirname($sourcePath);
+                if (is_dir($dir)) {
+                    $files = scandir($dir);
+                    Log::info("Available files in {$dir}: " . implode(', ', $files));
+                }
+                
                 return false;
             }
 
             $targetPath = "/etc/apparmor.d/{$profileName}";
+            Log::info("Installing AppArmor profile from {$sourcePath} to {$targetPath}");
+
+            // Check if we have write permissions to the target directory
+            if (!is_writable(dirname($targetPath))) {
+                Log::error("No write permission to AppArmor directory: " . dirname($targetPath));
+                return false;
+            }
 
             // Copy profile file
             if (!copy($sourcePath, $targetPath)) {
-                Log::error("Failed to copy AppArmor profile to {$targetPath}");
+                $error = error_get_last();
+                Log::error("Failed to copy AppArmor profile to {$targetPath}: " . ($error['message'] ?? 'Unknown error'));
                 return false;
             }
 
@@ -133,28 +151,47 @@ class AppArmorManager
             $process = new Process(['apparmor_parser', '-r', $targetPath]);
             $process->run();
 
+            $output = $process->getOutput();
+            $errorOutput = $process->getErrorOutput();
+            
+            Log::info("AppArmor parser output: " . ($output ?: '(no output)'));
+            if ($errorOutput) {
+                Log::warning("AppArmor parser error output: {$errorOutput}");
+            }
+
             if ($process->isSuccessful()) {
-                Log::info("AppArmor profile installed successfully: {$profileName}");
+                Log::info("AppArmor profile loaded successfully: {$profileName}");
+                
+                // Give it a moment to register in the system
+                sleep(1);
                 
                 // Verify it's actually loaded
                 if ($this->isProfileActive($profileName)) {
                     Log::info("AppArmor profile verified as active: {$profileName}");
                     return true;
                 } else {
-                    Log::warning("AppArmor profile copied but not showing as active: {$profileName}");
+                    Log::warning("AppArmor profile loaded but not showing as active: {$profileName}");
+                    
+                    // Try to debug why it's not showing as active
+                    $statusProcess = new Process(['aa-status']);
+                    $statusProcess->run();
+                    Log::info("Current aa-status output: " . $statusProcess->getOutput());
+                    
                     return false;
                 }
             } else {
-                $errorOutput = $process->getErrorOutput();
                 Log::error("Failed to load AppArmor profile: {$errorOutput}");
                 
                 // Try to put it in complain mode as fallback
+                Log::info("Attempting to set AppArmor profile to complain mode as fallback");
                 $complainProcess = new Process(['aa-complain', '/usr/sbin/clamonacc']);
                 $complainProcess->run();
                 
                 if ($complainProcess->isSuccessful()) {
                     Log::info("AppArmor profile set to complain mode as fallback: {$profileName}");
                     return true;
+                } else {
+                    Log::error("Failed to set complain mode: " . $complainProcess->getErrorOutput());
                 }
                 
                 return false;
@@ -162,6 +199,7 @@ class AppArmorManager
 
         } catch (\Exception $e) {
             Log::error("AppArmor profile installation failed: " . $e->getMessage());
+            Log::error("Exception trace: " . $e->getTraceAsString());
             return false;
         }
     }
