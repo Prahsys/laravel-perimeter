@@ -47,9 +47,30 @@ class InstallClamAV extends Command
         $this->info('- AppArmor installed: '.($appArmorStatus['installed'] ? 'Yes' : 'No'));
         $this->info('- AppArmor enabled: '.($appArmorStatus['enabled'] ? 'Yes' : 'No'));
 
-        // If already installed and not forced, exit early
+        // If already installed and not forced, check AppArmor configuration
         if ($isInstalled && ! $this->option('force')) {
-            $this->info('ClamAV is already installed. Use --force to reinstall.');
+            $this->info('ClamAV is already installed. Checking AppArmor configuration...');
+            
+            // Check if we need to force AppArmor configuration
+            $needsAppArmorConfig = false;
+            if ($appArmorStatus['installed'] && $appArmorStatus['enabled']) {
+                if (!$appArmorManager->isProfileActive('usr.sbin.clamonacc')) {
+                    $needsAppArmorConfig = true;
+                    $this->warn('AppArmor profile for clamonacc is not loaded. This will be configured.');
+                }
+            }
+            
+            // Handle AppArmor configuration
+            $this->handleAppArmorConfiguration();
+            
+            // Setup system permissions
+            $this->setupSystemPermissions();
+
+            if ($needsAppArmorConfig) {
+                $this->info('AppArmor configuration has been updated. Please restart ClamAV daemon:');
+                $this->line('  sudo systemctl restart clamav-daemon');
+                $this->line('  sudo systemctl restart clamav-freshclam');
+            }
 
             return 0;
         }
@@ -77,6 +98,9 @@ class InstallClamAV extends Command
 
             // Handle AppArmor configuration
             $this->handleAppArmorConfiguration();
+
+            // Setup system permissions
+            $this->setupSystemPermissions();
 
             // Display status
             $status = $clamavService->getStatus();
@@ -174,5 +198,64 @@ class InstallClamAV extends Command
         $this->newLine();
         $this->warn('Alternative: Put clamonacc in complain mode for debugging:');
         $this->line('  sudo aa-complain /usr/sbin/clamonacc');
+    }
+
+    /**
+     * Setup system permissions for ClamAV operations.
+     */
+    protected function setupSystemPermissions(): void
+    {
+        $this->newLine();
+        $this->info('Setting up system permissions...');
+
+        $appArmorManager = AppArmorManager::instance();
+        $success = $appArmorManager->setupSystemPermissions();
+        
+        if ($success) {
+            $this->info('✓ System permissions configured successfully');
+        } else {
+            $this->warn('⚠ Some permission issues detected. Check the logs.');
+        }
+
+        // Additional permission fixes for the current user
+        try {
+            // Ensure /tmp is writable for scan logs
+            if (!is_writable('/tmp')) {
+                $this->warn('Warning: /tmp is not writable. This may affect ClamAV scanning.');
+            }
+
+            // Check that ClamAV directories exist and are accessible
+            $clamavDirs = [
+                '/var/run/clamav',
+                '/var/log/clamav', 
+                '/var/lib/clamav'
+            ];
+
+            foreach ($clamavDirs as $dir) {
+                if (!is_dir($dir)) {
+                    $this->warn("ClamAV directory does not exist: {$dir}");
+                } elseif (!is_readable($dir)) {
+                    $this->warn("ClamAV directory is not readable: {$dir}");
+                }
+            }
+        } catch (\Exception $e) {
+            $this->warn('Could not verify all permissions: ' . $e->getMessage());
+        }
+
+        // Verify AppArmor profile is loaded
+        if ($appArmorManager->isInstalled() && $appArmorManager->isEnabled()) {
+            if (!$appArmorManager->isProfileActive('usr.sbin.clamonacc')) {
+                $this->warn('AppArmor profile for clamonacc is not loaded. Attempting to reload...');
+                $success = $appArmorManager->installProfile('usr.sbin.clamonacc');
+                if ($success) {
+                    $this->info('✓ AppArmor profile reloaded successfully');
+                } else {
+                    $this->warn('⚠ Failed to reload AppArmor profile. ClamAV monitoring may fail.');
+                    $this->displayAppArmorInstructions();
+                }
+            } else {
+                $this->info('✓ AppArmor profile is properly loaded');
+            }
+        }
     }
 }
