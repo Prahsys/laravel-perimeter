@@ -123,24 +123,19 @@ class InstallClamAV extends Command
      */
     protected function isRunningAsRoot(): bool
     {
-        // On Unix/Linux systems
+        // Check if running as root user (UID 0)
         if (function_exists('posix_getuid')) {
             return posix_getuid() === 0;
         }
 
-        // Try to write to a system location to test permissions
-        try {
-            // Use storage directory for testing permissions - more reliable
-            $testFile = storage_path('logs/sudo_test_'.time());
-            $result = @file_put_contents($testFile, 'test');
+        // Check if USER environment variable is set to root
+        if (getenv('USER') === 'root' || $_SERVER['USER'] ?? null === 'root') {
+            return true;
+        }
 
-            if ($result !== false) {
-                @unlink($testFile);
-
-                return true;
-            }
-        } catch (\Exception $e) {
-            Log::warning('Failed to test for root permissions: '.$e->getMessage());
+        // Check if running under sudo
+        if (getenv('SUDO_USER') !== false) {
+            return true;
         }
 
         return false;
