@@ -141,7 +141,8 @@ abstract class AbstractSecurityService implements SecurityServiceInterface
         if ($output && in_array($serviceName, ['clamav', 'trivy'])) {
             $output->writeln("  <fg=yellow>⏳ Running {$displayName} security scan...</>");
             if ($serviceName === 'clamav') {
-                $output->writeln('  <fg=cyan>💡 Watch scan progress with: tail -f /tmp/clamav-scan.log</>');
+                $scanLogPath = $this->getServiceLogPath('scan.log');
+                $output->writeln("  <fg=cyan>💡 Watch scan progress with: tail -f {$scanLogPath}</>");
             }
         }
 
@@ -258,6 +259,33 @@ abstract class AbstractSecurityService implements SecurityServiceInterface
         }
 
         return false;
+    }
+
+    /**
+     * Get the storage path for service logs.
+     *
+     * @param  string  $filename  The log filename
+     * @return string Full path to the log file in Laravel storage
+     */
+    protected function getServiceLogPath(string $filename): string
+    {
+        $serviceName = $this->getServiceName();
+
+        // Use realpath to resolve symlinks for Envoyer deployments
+        $storagePath = storage_path();
+        if (is_link($storagePath)) {
+            $realStoragePath = realpath($storagePath);
+            if ($realStoragePath !== false) {
+                $storagePath = $realStoragePath;
+            }
+        }
+
+        $logDir = "{$storagePath}/logs/perimeter/{$serviceName}";
+
+        // Ensure the directory exists
+        $this->ensureDirectoryExists($logDir, 0755, true);
+
+        return "{$logDir}/{$filename}";
     }
 
     /**

@@ -9,6 +9,7 @@ use Prahsys\Perimeter\Commands\InstallFalco;
 use Prahsys\Perimeter\Commands\InstallTrivy;
 use Prahsys\Perimeter\Commands\InstallUfw;
 use Prahsys\Perimeter\Commands\PerimeterAudit;
+use Prahsys\Perimeter\Commands\PerimeterCleanupTest;
 use Prahsys\Perimeter\Commands\PerimeterHealth;
 use Prahsys\Perimeter\Commands\PerimeterInstall;
 use Prahsys\Perimeter\Commands\PerimeterMonitor;
@@ -16,6 +17,7 @@ use Prahsys\Perimeter\Commands\PerimeterPrune;
 use Prahsys\Perimeter\Commands\PerimeterReport;
 use Prahsys\Perimeter\Commands\PerimeterSeedTestData;
 use Prahsys\Perimeter\Commands\PerimeterTerminate;
+use Prahsys\Perimeter\Commands\PerimeterTestMonitoring;
 use Prahsys\Perimeter\Contracts\FirewallServiceInterface;
 use Prahsys\Perimeter\Contracts\IntrusionPreventionInterface;
 use Prahsys\Perimeter\Contracts\MonitorServiceInterface;
@@ -109,6 +111,9 @@ class PerimeterServiceProvider extends ServiceProvider
             return $app->make(Fail2banService::class);
         });
 
+        // AppArmor Manager
+        $this->app->singleton(Services\AppArmorManager::class);
+
         // Reporting Service (not managed by ServiceManager)
         $this->app->singleton(ReportingService::class, function ($app) {
             return new ReportingService(config('perimeter.reporting'));
@@ -163,6 +168,8 @@ class PerimeterServiceProvider extends ServiceProvider
                 InstallUfw::class,
                 PerimeterPrune::class,
                 PerimeterSeedTestData::class,
+                PerimeterTestMonitoring::class,
+                PerimeterCleanupTest::class,
             ]);
         }
 
