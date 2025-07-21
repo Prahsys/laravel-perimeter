@@ -28,7 +28,6 @@ services:
       - SYS_PTRACE # Required for process tracing
       - NET_ADMIN  # Required for network monitoring
     security_opt:
-      - apparmor:unconfined
       - seccomp=unconfined  # Required for systemd
     privileged: true  # Required for systemd
 
