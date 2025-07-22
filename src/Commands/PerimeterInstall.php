@@ -131,8 +131,8 @@ class PerimeterInstall extends Command
         }
         $this->newLine();
 
-        // Configure environment
-        $this->configureEnvironment();
+        // Show required environment configuration
+        $this->showRequiredEnvironmentVariables();
         $this->newLine();
 
         $this->info('Installation complete! Run the following to verify installation:');
@@ -199,68 +199,17 @@ class PerimeterInstall extends Command
     }
 
     /**
-     * Configure environment.
+     * Show environment configuration status without modifying files.
      */
-    protected function configureEnvironment(): void
+    protected function showRequiredEnvironmentVariables(): void
     {
-        $this->info('Configuring environment...');
+        // Check if basic configuration is present
+        $hasBasicConfig = env('PERIMETER_ENABLED') !== null;
 
-        // Check if .env file exists
-        if (! File::exists(base_path('.env'))) {
-            $this->warn('.env file not found. Skipping environment configuration.');
-
-            return;
-        }
-
-        // Read .env file
-        $envContent = File::get(base_path('.env'));
-
-        // Add Perimeter configuration if not already present
-        $additions = [];
-
-        // Core configuration
-        if (! str_contains($envContent, 'PERIMETER_ENABLED')) {
-            $additions[] = 'PERIMETER_ENABLED=true';
-        }
-
-        if (! str_contains($envContent, 'PERIMETER_LOG_CHANNELS')) {
-            $additions[] = 'PERIMETER_LOG_CHANNELS=stack';
-        }
-
-        if (! str_contains($envContent, 'PERIMETER_REALTIME_SCAN')) {
-            $additions[] = 'PERIMETER_REALTIME_SCAN=true';
-        }
-
-        // Dynamic service configuration based on registered services
-        $services = config('perimeter.services', []);
-        foreach ($services as $serviceClass => $config) {
-            $serviceName = $this->getServiceName($serviceClass);
-            $serviceEnvKey = 'PERIMETER_'.strtoupper(str_replace('Service', '', $serviceName)).'_ENABLED';
-
-            if (! str_contains($envContent, $serviceEnvKey)) {
-                $additions[] = $serviceEnvKey.'=true';
-            }
-        }
-
-        // Add the additions to .env file if there are any
-        if (! empty($additions)) {
-            // Add a new line if the file doesn't end with one
-            if (! str_ends_with($envContent, PHP_EOL)) {
-                $envContent .= PHP_EOL;
-            }
-
-            // Add a comment for the Perimeter section
-            $envContent .= PHP_EOL.'# Perimeter Security Configuration'.PHP_EOL;
-
-            // Add each new configuration
-            $envContent .= implode(PHP_EOL, $additions).PHP_EOL;
-
-            // Write back to .env file
-            File::put(base_path('.env'), $envContent);
-
-            $this->info('Added Perimeter configuration to .env file.');
+        if (! $hasBasicConfig) {
+            $this->warn('⚠️  Environment configuration required. See documentation for setup instructions.');
         } else {
-            $this->line('Perimeter configuration already exists in .env file.');
+            $this->info('✅ Environment configuration detected.');
         }
     }
 }

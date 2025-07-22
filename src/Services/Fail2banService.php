@@ -435,9 +435,9 @@ class Fail2banService extends AbstractSecurityService implements IntrusionPreven
             'error' => $error,
         ];
 
-        // Fail2ban can be functional even when not actively running (intrusion prevention is optional)
-        // Consider it functional if installed and package is enabled
-        $functional = $enabled && $installed;
+        // Fail2ban should be functional only if it's installed, enabled, AND actually running
+        // If it's installed but not running properly, it's not functional
+        $functional = $enabled && $installed && $running;
 
         return new \Prahsys\Perimeter\Data\ServiceStatusData(
             name: 'fail2ban',

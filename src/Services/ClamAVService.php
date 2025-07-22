@@ -1047,15 +1047,40 @@ class ClamAVService extends AbstractSecurityService implements ScannerServiceInt
      */
     protected function installClamAVPackages(): void
     {
+        // First try standard update
         $process = new \Symfony\Component\Process\Process(['apt-get', 'update']);
         $process->run();
 
+        // If it fails due to repository label changes, try with --allow-releaseinfo-change
         if (! $process->isSuccessful()) {
-            throw new \Exception('Failed to update package list: '.$process->getErrorOutput());
+            $errorOutput = $process->getErrorOutput();
+
+            // Check if the error is due to repository label changes
+            if (strpos($errorOutput, 'changed its \'Label\' value') !== false) {
+                Log::info('Repository label changes detected, retrying with --allow-releaseinfo-change');
+                $process = new \Symfony\Component\Process\Process(['apt-get', 'update', '--allow-releaseinfo-change']);
+                $process->run();
+
+                if (! $process->isSuccessful()) {
+                    throw new \Exception('Failed to update package list even with --allow-releaseinfo-change: '.$process->getErrorOutput());
+                }
+            } else {
+                throw new \Exception('Failed to update package list: '.$errorOutput);
+            }
         }
 
-        $process = new \Symfony\Component\Process\Process(['apt-get', 'install', '-y', 'clamav', 'clamav-daemon']);
+        Log::info('Installing ClamAV packages...');
+        $process = new \Symfony\Component\Process\Process([
+            'apt-get', 'install', '-y', '--no-install-recommends', 'clamav', 'clamav-daemon',
+        ]);
         $process->setTimeout(600); // 10 minutes for package installation
+
+        // Set environment variables to prevent interactive prompts
+        $process->setEnv([
+            'DEBIAN_FRONTEND' => 'noninteractive',
+            'NEEDRESTART_MODE' => 'a',  // Auto restart services without prompting
+        ]);
+
         $process->run();
 
         if (! $process->isSuccessful()) {
