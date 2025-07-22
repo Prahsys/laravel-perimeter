@@ -104,7 +104,7 @@ Each service is installed with optimized configurations for Laravel applications
 - **ClamAV**: Installs with real-time protection capabilities and optimized scan settings
 - **Falco**: Installed without a kernel driver for non-interactive installation, providing comprehensive runtime monitoring with minimal system impact
 - **Trivy**: Configured for comprehensive system and dependency scanning with automated vulnerability database updates
-- **Fail2ban**: Set up with Laravel-specific jail configurations for web application protection
+- **Fail2ban**: Set up with Laravel-specific jail configurations and monitoring permissions for the current user (requires logout/login to take effect)
 - **UFW**: Configured with secure default policies and Laravel-friendly port rules
 
 The installation command will:

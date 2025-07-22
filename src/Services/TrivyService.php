@@ -407,6 +407,9 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
             Log::info('Creating Trivy directories...');
             $this->ensureDirectoriesExist();
 
+            // Clean up any existing broken repository configuration
+            $this->cleanupExistingTrivyRepository();
+
             // Install Trivy package
             Log::info('Installing Trivy package...');
             $this->installTrivyPackage();
@@ -463,29 +466,166 @@ class TrivyService extends AbstractSecurityService implements VulnerabilityScann
     }
 
     /**
+     * Clean up any existing broken Trivy repository configuration
+     */
+    protected function cleanupExistingTrivyRepository(): void
+    {
+        Log::info('Cleaning up any existing Trivy repository configuration...');
+
+        // Remove potentially broken repository configuration
+        if (file_exists('/etc/apt/sources.list.d/trivy.list')) {
+            unlink('/etc/apt/sources.list.d/trivy.list');
+            Log::info('Removed existing trivy.list repository file');
+        }
+
+        // Remove any existing GPG key
+        if (file_exists('/usr/share/keyrings/trivy.gpg')) {
+            unlink('/usr/share/keyrings/trivy.gpg');
+            Log::info('Removed existing Trivy GPG key');
+        }
+
+        // Also check for legacy apt-key entries (from older Docker script)
+        $process = new \Symfony\Component\Process\Process(['apt-key', 'list', '4021833E14CB7A8D']);
+        $process->run();
+
+        if ($process->isSuccessful()) {
+            Log::info('Found legacy Trivy GPG key, removing...');
+            $process = new \Symfony\Component\Process\Process(['apt-key', 'del', '4021833E14CB7A8D']);
+            $process->run();
+
+            if ($process->isSuccessful()) {
+                Log::info('Successfully removed legacy Trivy GPG key');
+            }
+        }
+    }
+
+    /**
      * Install Trivy package
      */
     protected function installTrivyPackage(): void
     {
-        // Create Trivy repository
-        $repoConfig = 'deb [trusted=yes] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main';
-        file_put_contents('/etc/apt/sources.list.d/trivy.list', $repoConfig."\n");
+        Log::info('Installing Trivy package...');
 
-        // Update package list and install
+        // Step 1: Install required dependencies
+        Log::info('Installing dependencies for Trivy repository...');
+        $process = new \Symfony\Component\Process\Process(['apt-get', 'update']);
+        $process->run();
+
+        // If it fails due to repository label changes, try with --allow-releaseinfo-change
+        if (! $process->isSuccessful()) {
+            $errorOutput = $process->getErrorOutput();
+
+            if (strpos($errorOutput, 'changed its \'Label\' value') !== false) {
+                Log::info('Repository label changes detected, retrying with --allow-releaseinfo-change');
+                $process = new \Symfony\Component\Process\Process(['apt-get', 'update', '--allow-releaseinfo-change']);
+                $process->run();
+
+                if (! $process->isSuccessful()) {
+                    throw new \Exception('Failed to update package list even with --allow-releaseinfo-change: '.$process->getErrorOutput());
+                }
+            } else {
+                throw new \Exception('Failed to update package list before installing dependencies: '.$errorOutput);
+            }
+        }
+
+        $process = new \Symfony\Component\Process\Process(['apt-get', 'install', '-y', '--no-install-recommends', 'wget', 'gnupg', 'ca-certificates']);
+        $process->setTimeout(300);
+
+        // Set environment variables to prevent interactive prompts
+        $process->setEnv([
+            'DEBIAN_FRONTEND' => 'noninteractive',
+            'NEEDRESTART_MODE' => 'a',
+        ]);
+
+        $process->run();
+
+        if (! $process->isSuccessful()) {
+            throw new \Exception('Failed to install required dependencies: '.$process->getErrorOutput());
+        }
+
+        // Step 2: Download and add GPG key
+        Log::info('Adding Trivy GPG key...');
+        $process = new \Symfony\Component\Process\Process([
+            'wget', '-qO', '-', 'https://aquasecurity.github.io/trivy-repo/deb/public.key',
+        ]);
+        $process->run();
+
+        if (! $process->isSuccessful()) {
+            throw new \Exception('Failed to download Trivy GPG key: '.$process->getErrorOutput());
+        }
+
+        $gpgKey = $process->getOutput();
+        $process = new \Symfony\Component\Process\Process([
+            'gpg', '--dearmor', '-o', '/usr/share/keyrings/trivy.gpg',
+        ]);
+        $process->setInput($gpgKey);
+        $process->run();
+
+        if (! $process->isSuccessful()) {
+            throw new \Exception('Failed to add Trivy GPG key: '.$process->getErrorOutput());
+        }
+
+        // Step 3: Detect distribution codename
+        Log::info('Detecting distribution codename...');
+        $process = new \Symfony\Component\Process\Process(['lsb_release', '-sc']);
+        $process->run();
+
+        if (! $process->isSuccessful()) {
+            throw new \Exception('Failed to detect distribution codename: '.$process->getErrorOutput());
+        }
+
+        $distroCodename = trim($process->getOutput());
+        Log::info("Detected distribution: {$distroCodename}");
+
+        // Step 4: Create repository configuration
+        Log::info('Creating Trivy repository configuration...');
+        $repoConfig = "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb {$distroCodename} main";
+
+        if (! file_put_contents('/etc/apt/sources.list.d/trivy.list', $repoConfig."\n")) {
+            throw new \Exception('Failed to create Trivy repository configuration file');
+        }
+
+        // Step 5: Update package list
+        Log::info('Updating package lists with Trivy repository...');
         $process = new \Symfony\Component\Process\Process(['apt-get', 'update']);
         $process->run();
 
         if (! $process->isSuccessful()) {
-            throw new \Exception('Failed to update package list: '.$process->getErrorOutput());
+            $errorOutput = $process->getErrorOutput();
+
+            // Check if the error is due to repository label changes
+            if (strpos($errorOutput, 'changed its \'Label\' value') !== false) {
+                Log::info('Repository label changes detected, retrying with --allow-releaseinfo-change');
+                $process = new \Symfony\Component\Process\Process(['apt-get', 'update', '--allow-releaseinfo-change']);
+                $process->run();
+
+                if (! $process->isSuccessful()) {
+                    $errorOutput = $process->getErrorOutput();
+                    throw new \Exception("Failed to update package list with Trivy repository even with --allow-releaseinfo-change. This might indicate the distribution '{$distroCodename}' is not supported by Trivy repository. Error: {$errorOutput}");
+                }
+            } else {
+                throw new \Exception("Failed to update package list with Trivy repository. This might indicate the distribution '{$distroCodename}' is not supported by Trivy repository. Error: {$errorOutput}");
+            }
         }
 
-        $process = new \Symfony\Component\Process\Process(['apt-get', 'install', '-y', 'trivy']);
+        // Step 6: Install Trivy package
+        Log::info('Installing Trivy package...');
+        $process = new \Symfony\Component\Process\Process(['apt-get', 'install', '-y', '--no-install-recommends', 'trivy']);
         $process->setTimeout(300);
+
+        // Set environment variables to prevent interactive prompts
+        $process->setEnv([
+            'DEBIAN_FRONTEND' => 'noninteractive',
+            'NEEDRESTART_MODE' => 'a',
+        ]);
+
         $process->run();
 
         if (! $process->isSuccessful()) {
-            throw new \Exception('Failed to install Trivy: '.$process->getErrorOutput());
+            throw new \Exception('Failed to install Trivy package: '.$process->getErrorOutput());
         }
+
+        Log::info('Trivy package installed successfully');
     }
 
     /**

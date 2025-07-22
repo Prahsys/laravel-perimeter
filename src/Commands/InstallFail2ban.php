@@ -85,6 +85,9 @@ class InstallFail2ban extends Command
         if ($result) {
             $this->info('Fail2Ban has been successfully installed!');
 
+            // Set up monitoring permissions for the current user
+            $this->setupMonitoringPermissions();
+
             // Display status
             $status = $fail2banService->getStatus();
 
@@ -130,5 +133,36 @@ class InstallFail2ban extends Command
         }
 
         return false;
+    }
+
+    /**
+     * Set up monitoring permissions for the current user.
+     */
+    private function setupMonitoringPermissions(): void
+    {
+        $actualUser = $_ENV['SUDO_USER'] ?? 'forge';
+
+        $this->info("Setting up monitoring permissions for {$actualUser}...");
+
+        $commands = [
+            ['groupadd', 'fail2ban'],
+            ['usermod', '-a', '-G', 'fail2ban', $actualUser],
+            ['chown', 'root:fail2ban', '/var/run/fail2ban/'],
+            ['chmod', '750', '/var/run/fail2ban/'],
+        ];
+
+        // Set socket permissions if it exists
+        if (file_exists('/var/run/fail2ban/fail2ban.sock')) {
+            $commands[] = ['chown', 'root:fail2ban', '/var/run/fail2ban/fail2ban.sock'];
+            $commands[] = ['chmod', '660', '/var/run/fail2ban/fail2ban.sock'];
+        }
+
+        foreach ($commands as $cmd) {
+            $process = new \Symfony\Component\Process\Process($cmd);
+            $process->run(); // Ignore failures - some may be expected
+        }
+
+        $this->info('✅ Monitoring permissions configured');
+        $this->warn("Note: {$actualUser} may need to log out/in for group changes to take effect");
     }
 }
